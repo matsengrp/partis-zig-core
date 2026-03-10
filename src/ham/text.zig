@@ -5,12 +5,16 @@
 ///
 /// C++ source: packages/ham/src/text.cc, packages/ham/include/text.h
 /// C++ author: psathyrella/ham
+///
+/// Zig 0.15 note: std.ArrayList is the unmanaged variant — initialize with
+/// `.empty`, pass allocator to each mutating call, deinit with `deinit(allocator)`.
 
 const std = @import("std");
 
 /// Removes all instances of characters in `chars` from `input` in place.
 /// Corresponds to C++ `ham::ClearWhitespace(string white, string *input)`.
-pub fn clear_whitespace(chars: []const u8, input: *std.ArrayList(u8)) void {
+pub fn clear_whitespace(allocator: std.mem.Allocator, chars: []const u8, input: *std.ArrayList(u8)) void {
+    _ = allocator; // not needed for in-place removal
     var i: usize = 0;
     while (i < input.items.len) {
         if (std.mem.indexOfScalar(u8, chars, input.items[i]) != null) {
@@ -23,15 +27,15 @@ pub fn clear_whitespace(chars: []const u8, input: *std.ArrayList(u8)) void {
     std.debug.print("{{\"checkpoint\": \"ham.Text.ClearWhitespace.exit\", \"result\": \"{s}\"}}\n", .{input.items});
 }
 
-/// Splits `argstr` by whitespace (any run), returning a slice of owned slices.
-/// Caller owns the returned ArrayList and its items.
+/// Splits `argstr` by whitespace (any run), returning a list of owned slices.
+/// Caller owns the returned ArrayList and its items (free each item, then call deinit).
 /// Corresponds to C++ `ham::PythonSplit(string argstr)`.
 pub fn python_split(allocator: std.mem.Allocator, argstr: []const u8) !std.ArrayList([]u8) {
-    var tokens = std.ArrayList([]u8).init(allocator);
+    var tokens: std.ArrayList([]u8) = .empty;
     var it = std.mem.tokenizeAny(u8, argstr, " \t\n\r");
     while (it.next()) |tok| {
         const owned = try allocator.dupe(u8, tok);
-        try tokens.append(owned);
+        try tokens.append(allocator, owned);
     }
     std.debug.print("{{\"checkpoint\": \"ham.Text.PythonSplit.exit\", \"n_tokens\": {}}}\n", .{tokens.items.len});
     return tokens;
@@ -41,17 +45,17 @@ pub fn python_split(allocator: std.mem.Allocator, argstr: []const u8) !std.Array
 /// Default delimiter in C++ is `":"`.
 /// Corresponds to C++ `ham::SplitString(string argstr, string delimiter)`.
 pub fn split_string(allocator: std.mem.Allocator, argstr: []const u8, delimiter: []const u8) !std.ArrayList([]u8) {
-    var parts = std.ArrayList([]u8).init(allocator);
+    var parts: std.ArrayList([]u8) = .empty;
     var remaining = argstr;
     while (true) {
         if (std.mem.indexOf(u8, remaining, delimiter)) |pos| {
             const part = try allocator.dupe(u8, remaining[0..pos]);
-            try parts.append(part);
+            try parts.append(allocator, part);
             remaining = remaining[pos + delimiter.len ..];
         } else {
             // last (or only) segment
             const part = try allocator.dupe(u8, remaining);
-            try parts.append(part);
+            try parts.append(allocator, part);
             break;
         }
     }
@@ -143,7 +147,7 @@ test "split_string default delimiter" {
     var parts = try split_string(allocator, "a:b:c", ":");
     defer {
         for (parts.items) |p| allocator.free(p);
-        parts.deinit();
+        parts.deinit(allocator);
     }
     try std.testing.expectEqual(@as(usize, 3), parts.items.len);
     try std.testing.expectEqualStrings("a", parts.items[0]);
@@ -180,7 +184,7 @@ test "python_split" {
     var tokens = try python_split(allocator, "  foo  bar  baz  ");
     defer {
         for (tokens.items) |t| allocator.free(t);
-        tokens.deinit();
+        tokens.deinit(allocator);
     }
     try std.testing.expectEqual(@as(usize, 3), tokens.items.len);
     try std.testing.expectEqualStrings("foo", tokens.items[0]);

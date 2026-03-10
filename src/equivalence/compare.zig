@@ -171,13 +171,16 @@ fn compareCheckpoint(
         else => return error.NotAnObject,
     };
 
-    const name = if (cpp_obj.get("checkpoint")) |v|
+    // Allocate an owned copy of the checkpoint name so it survives after
+    // cpp_parsed.deinit() runs at end of this function.
+    const name_raw = if (cpp_obj.get("checkpoint")) |v|
         switch (v) {
             .string => |s| s,
             else => "(unnamed)",
         }
     else
         "(unnamed)";
+    const name = try allocator.dupe(u8, name_raw);
 
     // Exact match fast path.
     if (mem.eql(u8, cpp_line, zig_line)) {

@@ -18,6 +18,19 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
+    // ── partis-zig-core executable: bcrham-compatible CLI ────────────────
+    // Accepts the same arguments as bcrham so the equivalence harness can
+    // drive both side-by-side and compare checkpoint streams.
+    const exe = b.addExecutable(.{
+        .name = "partis-zig-core",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(exe);
+
     // ── compare: equivalence harness binary ──────────────────────────────
     const compare = b.addExecutable(.{
         .name = "compare",
