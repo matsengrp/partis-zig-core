@@ -28,6 +28,7 @@ pub const ham_emission = @import("ham/emission.zig");
 pub const ham_state = @import("ham/state.zig");
 pub const ham_hmm_yaml = @import("ham/hmm_yaml.zig");
 pub const ham_model = @import("ham/model.zig");
+pub const ham_traceback_path = @import("ham/traceback_path.zig");
 
 // ─── bcrham entry points ──────────────────────────────────────────────────────
 
