@@ -20,6 +20,7 @@ const std = @import("std");
 pub const ham_text = @import("ham/text.zig");
 pub const ham_mathutils = @import("ham/mathutils.zig");
 pub const ham_transitions = @import("ham/transitions.zig");
+pub const ham_track = @import("ham/track.zig");
 
 // ─── bcrham entry points ──────────────────────────────────────────────────────
 
