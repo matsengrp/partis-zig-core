@@ -30,6 +30,7 @@ pub const ham_hmm_yaml = @import("ham/hmm_yaml.zig");
 pub const ham_model = @import("ham/model.zig");
 pub const ham_traceback_path = @import("ham/traceback_path.zig");
 pub const ham_trellis = @import("ham/trellis.zig");
+pub const ham_args = @import("ham/args.zig");
 
 // ─── bcrham entry points ──────────────────────────────────────────────────────
 
