@@ -35,6 +35,7 @@ pub const ham_bcr_utils = @import("ham/bcr_utils/root.zig");
 pub const ham_dp_handler = @import("ham/dp_handler.zig");
 pub const ham_glomerator = @import("ham/glomerator/root.zig");
 pub const ham_bcrham = @import("ham/bcrham.zig");
+pub const igsw_ig_align = @import("igsw/ig_align.zig");
 
 // ─── bcrham entry points ──────────────────────────────────────────────────────
 
