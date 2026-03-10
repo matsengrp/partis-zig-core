@@ -53,9 +53,9 @@ pub const Sequence = struct {
             .track = trk,
         };
         // ClearWhitespace("\n", &undigitized_)
-        var ud_list = std.ArrayList(u8).fromOwnedSlice(allocator, seq.undigitized);
+        var ud_list = std.ArrayList(u8).fromOwnedSlice(seq.undigitized);
         ham_text.clear_whitespace(allocator, "\n", &ud_list);
-        seq.undigitized = try ud_list.toOwnedSlice();
+        seq.undigitized = try ud_list.toOwnedSlice(allocator);
         // Digitize
         seq.seqq = try digitize(allocator, trk, seq.undigitized);
         return seq;
@@ -173,6 +173,16 @@ pub const Sequences = struct {
 
     pub fn getPtr(self: *Sequences, index: usize) *Sequence {
         return &self.seqs.items[index];
+    }
+
+    /// Deep-copy this Sequences (matches C++ copy constructor semantics).
+    pub fn clone(self: *const Sequences, allocator: std.mem.Allocator) !Sequences {
+        var result = Sequences.init();
+        errdefer result.deinit(allocator);
+        for (self.seqs.items) |*sq| {
+            try result.addSeq(allocator, try sq.clone(allocator));
+        }
+        return result;
     }
 
     /// Add a sequence, taking ownership.

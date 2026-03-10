@@ -115,16 +115,35 @@ pub const GermLines = struct {
         if (extras) |content| {
             defer allocator.free(content);
             var line_iter = std.mem.splitScalar(u8, content, '\n');
-            _ = line_iter.next(); // skip header line
+
+            // Read and checkpoint the header line (matches C++ SplitString call).
+            if (line_iter.next()) |header_raw| {
+                const header_line = std.mem.trim(u8, header_raw, " \t\r");
+                if (header_line.len > 0) {
+                    var header_parts = try ham_text.split_string(allocator, header_line, ",");
+                    defer {
+                        for (header_parts.items) |s| allocator.free(s);
+                        header_parts.deinit(allocator);
+                    }
+                }
+            }
 
             while (line_iter.next()) |raw| {
                 const line = std.mem.trim(u8, raw, " \t\r");
                 if (line.len == 0) continue;
-                var fields = std.mem.splitScalar(u8, line, ',');
-                const gene_name = fields.next() orelse continue;
-                const cyst_str = fields.next() orelse continue;
-                const tryp_str = fields.next() orelse continue;
-                const phen_str = fields.next() orelse "";
+
+                // Use split_string to emit checkpoint (matches C++ instrumentation).
+                var parts = try ham_text.split_string(allocator, line, ",");
+                defer {
+                    for (parts.items) |s| allocator.free(s);
+                    parts.deinit(allocator);
+                }
+
+                if (parts.items.len < 2) continue;
+                const gene_name = parts.items[0];
+                const cyst_str = parts.items[1];
+                const tryp_str = if (parts.items.len > 2) parts.items[2] else "";
+                const phen_str = if (parts.items.len > 3) parts.items[3] else "";
 
                 if (cyst_str.len > 0) {
                     const val = std.fmt.parseInt(i32, cyst_str, 10) catch continue;

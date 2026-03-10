@@ -10,7 +10,9 @@ const GermLines = @import("germ_lines.zig").GermLines;
 const k_bounds_mod = @import("k_bounds.zig");
 const KSet = k_bounds_mod.KSet;
 const KBounds = k_bounds_mod.KBounds;
-const hasDGene = @import("germ_lines.zig").hasDGene;
+const germ_lines_mod = @import("germ_lines.zig");
+const hasDGene = germ_lines_mod.hasDGene;
+const regions = germ_lines_mod.regions;
 
 /// Corresponds to C++ `ham::Result`.
 pub const Result = struct {
@@ -72,11 +74,13 @@ pub const Result = struct {
             }
         }.desc);
 
-        // Copy best event
-        self.best_event = self.events.items[0];
+        // Take ownership of the best event by removing it from the events list.
+        // This avoids a double-free: deinit frees both best_event and every item
+        // in events, so the best event must appear in exactly one of the two.
+        self.best_event = self.events.orderedRemove(0);
 
         // Build per_gene_support for best event
-        for (GermLines.regions) |region| {
+        for (regions) |region| {
             var support: std.ArrayListUnmanaged(SupportPair) = .{};
             var it = unsorted_per_gene_support.iterator();
             while (it.next()) |entry| {

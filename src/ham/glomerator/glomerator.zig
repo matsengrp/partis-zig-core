@@ -8,7 +8,8 @@
 const std = @import("std");
 const Args = @import("../args.zig").Args;
 const DPHandler = @import("../dp_handler.zig").DPHandler;
-const Track = @import("../track.zig").Track;
+const track_mod = @import("../track.zig");
+const Track = track_mod.Track;
 const ClusterPath = @import("../cluster_path.zig").ClusterPath;
 const Partition = @import("../cluster_path.zig").Partition;
 const Sequence = @import("../sequences.zig").Sequence;
@@ -490,7 +491,9 @@ pub const Glomerator = struct {
         const allocator = self.allocator;
         const f = try std.fs.cwd().createFile(self.args.outfile, .{});
         defer f.close();
-        const writer = f.writer();
+        var wr_buf: [65536]u8 = undefined;
+        var wr = f.writer(&wr_buf);
+        const writer = &wr.interface;
 
         try writer.writeAll("partition,logprob\n");
 
@@ -515,6 +518,7 @@ pub const Glomerator = struct {
             try writer.print(",{d}\n", .{cp.logprobs.items[ipart]});
         }
 
+        try writer.flush();
         _ = allocator;
     }
 
@@ -683,7 +687,7 @@ pub const Glomerator = struct {
 
     // ── Naive sequence calculation ────────────────────────────────────────────
 
-    fn getNaiveSeq(self: *Glomerator, queries: []const u8, parents: ?*const [2][]const u8) ![]const u8 {
+    fn getNaiveSeq(self: *Glomerator, queries: []const u8, parents: ?*const [2][]const u8) anyerror![]const u8 {
         if (self.naive_seqs.get(queries)) |ns| return ns;
 
         // maybe use parent naive seq directly
@@ -758,11 +762,11 @@ pub const Glomerator = struct {
 
         var distance: usize = 0;
         var len_excl_ambig: usize = 0;
-        const ambig_idx = self.track.ambiguousIndex();
+        const ambig_idx = track_mod.AMBIGUOUS_INDEX;
 
         for (seq_a, seq_b) |ca, cb| {
-            const ia = self.track.symbolIndex(&[_]u8{ca}) orelse ambig_idx;
-            const ib = self.track.symbolIndex(&[_]u8{cb}) orelse ambig_idx;
+            const ia = self.track.symbolIndex(&[_]u8{ca}) catch ambig_idx;
+            const ib = self.track.symbolIndex(&[_]u8{cb}) catch ambig_idx;
             if (ia == ambig_idx or ib == ambig_idx) continue;
             len_excl_ambig += 1;
             if (ia != ib) distance += 1;

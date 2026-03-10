@@ -92,15 +92,15 @@ pub fn runAlgorithm(
         var dph = try DPHandler.init(allocator, args.algorithm, args, gl, hmms);
         defer dph.deinit();
 
-        var result = try dph.run(qseqs.items, kbounds, only_genes, @floatCast(qrow.mut_freq));
-        defer result.deinit(allocator);
+        var result = try dph.run(qseqs.items, kbounds, only_genes, @floatCast(qrow.mut_freq), true);
+        defer result.deinit();
 
         if (result.no_path) {
-            try bcr_text.streamErrorput(writer, args.algorithm, qseqs.items, "no_path");
+            try bcr_text.streamErrorput(writer, args.algorithm, allocator, qseqs.items, "no_path");
         } else if (std.mem.eql(u8, args.algorithm, "viterbi")) {
-            try bcr_text.streamViterbiOutput(writer, result.bestEvent(), qseqs.items, "");
+            try bcr_text.streamViterbiOutput(writer, allocator, &result.best_event.?, qseqs.items, "");
         } else if (std.mem.eql(u8, args.algorithm, "forward")) {
-            try bcr_text.streamForwardOutput(writer, qseqs.items, result.totalScore(), "");
+            try bcr_text.streamForwardOutput(writer, allocator, qseqs.items, result.total_score, "");
         } else {
             return error.UnknownAlgorithm;
         }
@@ -121,24 +121,114 @@ pub fn run(allocator: std.mem.Allocator, argv: []const [*:0]const u8) !void {
     const start = std.time.milliTimestamp();
 
     // Parse args from argv
-    var args = try Args.initFromArgv(allocator, argv);
+    // Parse args from argv: build defaults then populate each --flag value
+    var args = try Args.initDefaults(allocator);
     defer args.deinit(allocator);
+    {
+        var i: usize = 0;
+        while (i < argv.len) : (i += 1) {
+            const flag = std.mem.span(argv[i]);
+            if (i + 1 >= argv.len) break;
+            const val = std.mem.span(argv[i + 1]);
+            i += 1;
+            if (std.mem.eql(u8, flag, "--hmmdir")) {
+                allocator.free(args.hmmdir);
+                args.hmmdir = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--datadir")) {
+                allocator.free(args.datadir);
+                args.datadir = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--infile")) {
+                allocator.free(args.infile);
+                args.infile = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--outfile")) {
+                allocator.free(args.outfile);
+                args.outfile = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--annotationfile")) {
+                allocator.free(args.annotationfile);
+                args.annotationfile = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--input-cachefname")) {
+                allocator.free(args.input_cachefname);
+                args.input_cachefname = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--output-cachefname")) {
+                allocator.free(args.output_cachefname);
+                args.output_cachefname = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--locus")) {
+                allocator.free(args.locus);
+                args.locus = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--algorithm")) {
+                allocator.free(args.algorithm);
+                args.algorithm = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--ambig-base")) {
+                allocator.free(args.ambig_base);
+                args.ambig_base = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--seed-unique-id")) {
+                allocator.free(args.seed_unique_id);
+                args.seed_unique_id = try allocator.dupe(u8, val);
+            } else if (std.mem.eql(u8, flag, "--debug")) {
+                args.debug = try std.fmt.parseInt(i32, val, 10);
+            } else if (std.mem.eql(u8, flag, "--hamming-fraction-bound-lo")) {
+                args.hamming_fraction_bound_lo = try std.fmt.parseFloat(f32, val);
+            } else if (std.mem.eql(u8, flag, "--hamming-fraction-bound-hi")) {
+                args.hamming_fraction_bound_hi = try std.fmt.parseFloat(f32, val);
+            } else if (std.mem.eql(u8, flag, "--logprob-ratio-threshold")) {
+                args.logprob_ratio_threshold = try std.fmt.parseFloat(f32, val);
+            } else if (std.mem.eql(u8, flag, "--max-logprob-drop")) {
+                args.max_logprob_drop = try std.fmt.parseFloat(f32, val);
+            } else if (std.mem.eql(u8, flag, "--n-partitions-to-write")) {
+                args.n_partitions_to_write = try std.fmt.parseInt(i32, val, 10);
+            } else if (std.mem.eql(u8, flag, "--biggest-naive-seq-cluster-to-calculate")) {
+                args.biggest_naive_seq_cluster_to_calculate = try std.fmt.parseInt(i32, val, 10);
+            } else if (std.mem.eql(u8, flag, "--biggest-logprob-cluster-to-calculate")) {
+                args.biggest_logprob_cluster_to_calculate = try std.fmt.parseInt(i32, val, 10);
+            } else if (std.mem.eql(u8, flag, "--n-final-clusters")) {
+                args.n_final_clusters = try std.fmt.parseInt(u32, val, 10);
+            } else if (std.mem.eql(u8, flag, "--max-cluster-size")) {
+                args.max_cluster_size = try std.fmt.parseInt(u32, val, 10);
+            } else if (std.mem.eql(u8, flag, "--random-seed")) {
+                args.random_seed = try std.fmt.parseInt(u32, val, 10);
+            } else if (std.mem.eql(u8, flag, "--no-chunk-cache")) {
+                args.no_chunk_cache = true;
+                i -= 1; // boolean flag, no value
+            } else if (std.mem.eql(u8, flag, "--partition")) {
+                args.partition = true;
+                i -= 1;
+            } else if (std.mem.eql(u8, flag, "--dont-rescale-emissions")) {
+                args.dont_rescale_emissions = true;
+                i -= 1;
+            } else if (std.mem.eql(u8, flag, "--cache-naive-seqs")) {
+                args.cache_naive_seqs = true;
+                i -= 1;
+            } else if (std.mem.eql(u8, flag, "--cache-naive-hfracs")) {
+                args.cache_naive_hfracs = true;
+                i -= 1;
+            } else if (std.mem.eql(u8, flag, "--only-cache-new-vals")) {
+                args.only_cache_new_vals = true;
+                i -= 1;
+            } else if (std.mem.eql(u8, flag, "--write-logprob-for-each-partition")) {
+                args.write_logprob_for_each_partition = true;
+                i -= 1;
+            } else if (std.mem.eql(u8, flag, "--min-largest-cluster-size")) {
+                args.min_largest_cluster_size = try std.fmt.parseInt(u32, val, 10);
+            }
+        }
+    }
+    if (args.infile.len > 0) try args.readInfile(allocator);
 
     // Build track
     const characters = [_][]const u8{ "A", "C", "G", "T" };
     var track = try Track.init(allocator, "NUKES");
     defer track.deinit(allocator);
     for (characters) |c| {
-        try track.addAlphabet(allocator, c);
+        try track.addSymbol(allocator, c);
     }
-    try track.setAmbiguousChar(allocator, args.ambig_base);
+    if (args.ambig_base.len > 0) try track.setAmbiguous(allocator, args.ambig_base);
 
     // Load germlines and HMMs
     var gl = try GermLines.init(allocator, args.datadir, args.locus);
-    defer gl.deinit(allocator);
+    defer gl.deinit();
 
-    var hmms = try HMMHolder.init(allocator, args.hmmdir, &gl, &track);
-    defer hmms.deinit(allocator);
+    var hmms = try HMMHolder.init(allocator, args.hmmdir, &gl);
+    defer hmms.deinit();
 
     // Build query sequences
     var qry_seq_list = try getSeqs(allocator, &args, &track);
@@ -153,21 +243,26 @@ pub fn run(allocator: std.mem.Allocator, argv: []const [*:0]const u8) !void {
     // Open outfile
     const outfile = try std.fs.createFileAbsolute(args.outfile, .{});
     defer outfile.close();
-    var bw = std.io.bufferedWriter(outfile.writer());
+    var bw_buf: [65536]u8 = undefined;
+    var bw = outfile.writer(&bw_buf);
 
-    if (args.cache_naive_seqs) {
-        var glom = try Glomerator.init(allocator, &hmms, &gl, &qry_seq_list, &args, &track);
+    if (args.cache_naive_seqs or args.partition) {
+        // Convert ArrayList(ArrayList(Sequence)) → [][]Sequence for Glomerator
+        const seq_slices = try allocator.alloc([]Sequence, qry_seq_list.items.len);
+        defer allocator.free(seq_slices);
+        for (qry_seq_list.items, 0..) |sv, i| seq_slices[i] = sv.items;
+        var glom = try Glomerator.init(allocator, &hmms, &gl, seq_slices, &args, &track);
         defer glom.deinit();
-        try glom.cacheNaiveSeqs();
-    } else if (args.partition) {
-        var glom = try Glomerator.init(allocator, &hmms, &gl, &qry_seq_list, &args, &track);
-        defer glom.deinit();
-        try glom.cluster();
+        if (args.cache_naive_seqs) {
+            try glom.cacheNaiveSeqs();
+        } else {
+            try glom.cluster();
+        }
     } else {
-        try runAlgorithm(allocator, &hmms, &gl, &qry_seq_list, &args, bw.writer());
+        try runAlgorithm(allocator, &hmms, &gl, &qry_seq_list, &args, &bw.interface);
     }
 
-    try bw.flush();
+    try bw.interface.flush();
 
     const elapsed_s = @as(f64, @floatFromInt(std.time.milliTimestamp() - start)) / 1000.0;
     std.debug.print("        time: bcrham {d:.1}\n", .{elapsed_s});

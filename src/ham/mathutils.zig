@@ -40,8 +40,8 @@ pub fn power(b: usize, a: usize) u64 {
 /// Computes log(a * b) = log(a) + log(b) where -inf represents probability 0.
 /// Corresponds to C++ `ham::AddWithMinusInfinities(double first, double second)`.
 pub fn add_with_minus_infinities(first: f64, second: f64) f64 {
-    if (first == math.neginf(f64) or second == math.neginf(f64))
-        return math.neginf(f64);
+    if (first == -math.inf(f64) or second == -math.inf(f64))
+        return -math.inf(f64);
     return first + second;
 }
 
@@ -51,8 +51,8 @@ pub fn add_with_minus_infinities(first: f64, second: f64) f64 {
 /// Implements the log-space *or* operation (a OR b = a + b in probability space).
 /// Corresponds to C++ `ham::AddInLogSpace<T>(T first, T second)`.
 pub fn add_in_log_space(first: f64, second: f64) f64 {
-    if (first == math.neginf(f64)) return second;
-    if (second == math.neginf(f64)) return first;
+    if (first == -math.inf(f64)) return second;
+    if (second == -math.inf(f64)) return first;
     if (first > second) {
         return first + @log(1.0 + @exp(second - first));
     } else {
@@ -141,13 +141,13 @@ test "add_with_minus_infinities: both finite" {
 }
 
 test "add_with_minus_infinities: first -inf" {
-    const result = add_with_minus_infinities(math.neginf(f64), -2.3);
-    try std.testing.expect(result == math.neginf(f64));
+    const result = add_with_minus_infinities(-math.inf(f64), -2.3);
+    try std.testing.expect(result == -math.inf(f64));
 }
 
 test "add_with_minus_infinities: second -inf" {
-    const result = add_with_minus_infinities(-1.5, math.neginf(f64));
-    try std.testing.expect(result == math.neginf(f64));
+    const result = add_with_minus_infinities(-1.5, -math.inf(f64));
+    try std.testing.expect(result == -math.inf(f64));
 }
 
 test "add_in_log_space: log(e^0 + e^0) = log(2)" {
@@ -156,12 +156,12 @@ test "add_in_log_space: log(e^0 + e^0) = log(2)" {
 }
 
 test "add_in_log_space: first -inf" {
-    const result = add_in_log_space(math.neginf(f64), -1.5);
+    const result = add_in_log_space(-math.inf(f64), -1.5);
     try std.testing.expectApproxEqAbs(-1.5, result, 1e-10);
 }
 
 test "add_in_log_space: second -inf" {
-    const result = add_in_log_space(-1.5, math.neginf(f64));
+    const result = add_in_log_space(-1.5, -math.inf(f64));
     try std.testing.expectApproxEqAbs(-1.5, result, 1e-10);
 }
 

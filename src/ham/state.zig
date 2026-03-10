@@ -202,7 +202,7 @@ pub const State = struct {
         var logprob: f64 = 0.0;
         for (0..seqs.nSeqs()) |iseq| {
             const seq = seqs.get(iseq);
-            logprob = mathutils.addWithMinusInfinities(logprob, self.emissionLogprob(seq.seqq[pos]));
+            logprob = mathutils.add_with_minus_infinities(logprob, self.emissionLogprob(seq.seqq[pos]));
         }
         return logprob;
     }

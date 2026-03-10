@@ -64,10 +64,11 @@ pub const Trellis = struct {
     }
 
     /// Create a Trellis for a Sequences object.
-    /// Takes ownership of `seqs` (caller should not deinit it).
-    /// Corresponds to C++ `Trellis(Model*, Sequences, Trellis*)`.
+    /// Clones `seqs` so the caller retains ownership of the original
+    /// (matches C++ Trellis(Model*, Sequences, Trellis*) copy-by-value semantics).
     pub fn initWithSeqs(allocator: std.mem.Allocator, hmm: *const Model, seqs: Sequences, cached: ?*const Trellis) !Trellis {
-        return initImpl(allocator, hmm, seqs, cached);
+        const seqs_copy = try seqs.clone(allocator);
+        return initImpl(allocator, hmm, seqs_copy, cached);
     }
 
     fn initImpl(allocator: std.mem.Allocator, hmm: *const Model, seqs: Sequences, cached: ?*const Trellis) !Trellis {
@@ -247,7 +248,7 @@ pub const Trellis = struct {
             if (std.math.isNegativeInf(self.scoring_previous[st_prev])) continue;
             const dpval = self.scoring_previous[st_prev] + self.hmm.stateByIndex(st_prev).endTransitionLogprob();
             if (std.math.isNegativeInf(dpval)) continue;
-            self.ending_forward_log_prob = mathutils.addInLogSpace(self.ending_forward_log_prob, dpval);
+            self.ending_forward_log_prob = mathutils.add_in_log_space(self.ending_forward_log_prob, dpval);
         }
     }
 
@@ -338,7 +339,7 @@ pub const Trellis = struct {
                 const prev_val = self.scoring_previous[i_st_prev];
                 if (std.math.isNegativeInf(prev_val)) continue;
                 const dpval = prev_val + emission_val + self.hmm.stateByIndex(i_st_prev).transitionLogprob(i_st_cur);
-                self.scoring_current[i_st_cur] = mathutils.addInLogSpace(dpval, self.scoring_current[i_st_cur]);
+                self.scoring_current[i_st_cur] = mathutils.add_in_log_space(dpval, self.scoring_current[i_st_cur]);
                 self.cacheForwardVals(position, dpval, i_st_cur);
                 const to_states = &st_cur.to_states;
                 for (0..state_mod.STATE_MAX) |j| {
@@ -360,7 +361,7 @@ pub const Trellis = struct {
     fn cacheForwardVals(self: *Trellis, position: usize, dpval: f64, i_st_cur: usize) void {
         const end_trans = self.hmm.stateByIndex(i_st_cur).endTransitionLogprob();
         const logprob = dpval + end_trans;
-        self.forward_log_probs.items[position] = mathutils.addInLogSpace(logprob, self.forward_log_probs.items[position]);
+        self.forward_log_probs.items[position] = mathutils.add_in_log_space(logprob, self.forward_log_probs.items[position]);
     }
 
     /// Ending Viterbi log-prob for a specific sequence length (used by cached trellis).

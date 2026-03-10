@@ -5,7 +5,9 @@
 
 const std = @import("std");
 const Model = @import("../model.zig").Model;
-const GermLines = @import("germ_lines.zig").GermLines;
+const germ_lines_mod = @import("germ_lines.zig");
+const GermLines = germ_lines_mod.GermLines;
+const regions = germ_lines_mod.regions;
 
 /// Corresponds to C++ `ham::HMMHolder`.
 pub const HMMHolder = struct {
@@ -30,7 +32,7 @@ pub const HMMHolder = struct {
         var it = self.hmms.iterator();
         while (it.next()) |entry| {
             allocator.free(entry.key_ptr.*);
-            entry.value_ptr.*.deinit();
+            entry.value_ptr.*.deinit(allocator);
             allocator.destroy(entry.value_ptr.*);
         }
         self.hmms.deinit(allocator);
@@ -49,8 +51,9 @@ pub const HMMHolder = struct {
 
         const m = try self.allocator.create(Model);
         errdefer self.allocator.destroy(m);
-        m.* = try Model.parse(self.allocator, infname);
-        errdefer m.deinit();
+        m.* = try Model.init(self.allocator);
+        errdefer m.deinit(self.allocator);
+        try m.parse(self.allocator, infname);
 
         const key = try self.allocator.dupe(u8, gene);
         errdefer self.allocator.free(key);
@@ -61,7 +64,7 @@ pub const HMMHolder = struct {
     /// Read all available HMMs into memory.
     /// Corresponds to C++ `HMMHolder::CacheAll`.
     pub fn cacheAll(self: *HMMHolder) !void {
-        for (self.gl.regions) |region| {
+        for (regions) |region| {
             const names = self.gl.names.get(region) orelse continue;
             for (names.items) |gene| {
                 const sanitized = try GermLines.sanitizeName(self.allocator, gene);
@@ -81,12 +84,12 @@ pub const HMMHolder = struct {
         only_genes: *std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)),
         overall_mute_freq: f64,
     ) !void {
-        for (self.gl.regions) |region| {
+        for (regions) |region| {
             const gene_set = only_genes.get(region) orelse continue;
             var git = gene_set.iterator();
             while (git.next()) |entry| {
                 const m = try self.get(entry.key_ptr.*);
-                m.rescaleOverallMuteFreq(overall_mute_freq);
+                try m.rescaleOverallMuteFreq(self.allocator, overall_mute_freq);
             }
         }
     }
@@ -96,12 +99,12 @@ pub const HMMHolder = struct {
         self: *HMMHolder,
         only_genes: *std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)),
     ) !void {
-        for (self.gl.regions) |region| {
+        for (regions) |region| {
             const gene_set = only_genes.get(region) orelse continue;
             var git = gene_set.iterator();
             while (git.next()) |entry| {
                 const m = try self.get(entry.key_ptr.*);
-                m.unRescaleOverallMuteFreq();
+                m.unRescaleOverallMuteFreq(self.allocator);
             }
         }
     }

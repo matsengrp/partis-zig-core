@@ -88,7 +88,7 @@ pub const DPHandler = struct {
             for (entry.value_ptr.items) |*te| {
                 for (te.query_strs.items) |s| allocator.free(s);
                 te.query_strs.deinit(allocator);
-                te.trellis.deinit(allocator);
+                te.trellis.deinit();
             }
             entry.value_ptr.deinit(allocator);
         }
@@ -171,7 +171,7 @@ pub const DPHandler = struct {
         }
 
         if (only_gene_list.len > 0) {
-            for (bcr.GermLines.regions) |r| {
+            for (bcr.germ_lines.regions) |r| {
                 try only_genes.put(allocator, try allocator.dupe(u8, r), .{});
             }
             for (only_gene_list) |gene| {
@@ -184,13 +184,13 @@ pub const DPHandler = struct {
                 }
             }
             // Validate each region has at least one gene
-            for (bcr.GermLines.regions) |r| {
+            for (bcr.germ_lines.regions) |r| {
                 const set = only_genes.get(r) orelse return error.NoGenesForRegion;
                 if (set.count() == 0) return error.NoGenesForRegion;
             }
         } else {
             // Populate from GermLines
-            for (bcr.GermLines.regions) |r| {
+            for (bcr.germ_lines.regions) |r| {
                 var set: std.StringHashMapUnmanaged(void) = .{};
                 if (self.gl.names.get(r)) |name_list| {
                     for (name_list.items) |gene| {
@@ -301,7 +301,7 @@ pub const DPHandler = struct {
             else seqs.sequence_length - k_v - k_d;
 
         for (seqs.seqs.items) |*sq| {
-            var sub = try Sequence.initSubstring(allocator, sq, start, length);
+            var sub = try Sequence.initSlice(allocator, sq, start, length);
             errdefer sub.deinit(allocator);
             try result.addSeq(allocator, sub);
         }
@@ -397,41 +397,60 @@ pub const DPHandler = struct {
 
         const model = try self.hmms.get(gene);
 
-        // If no cache match, store a fresh scratch trellis
-        if (cached_trellis == null) {
-            var fresh = try Trellis.initWithSeqs(allocator, model, query_seqs, null);
-            errdefer fresh.deinit(allocator);
+        // Match C++ DPHandler::FillTrellis logic exactly:
+        //   - When no cached trellis: create scratch, store it, run algorithm ON THE SCRATCH directly.
+        //   - When cached trellis exists: create a temp trellis that borrows from the cache,
+        //     run algorithm on the temp trellis.
+        // This is critical: when no cache, do NOT create a second trellis that borrows from
+        // the (empty) scratch — the scratch itself is the working trellis.
 
-            // Build a TrellisEntry
-            var qstrs: std.ArrayListUnmanaged([]u8) = .{};
-            errdefer {
-                for (qstrs.items) |s| allocator.free(s);
-                qstrs.deinit(allocator);
-            }
-            for (query_strs) |s| {
-                try qstrs.append(allocator, try allocator.dupe(u8, s));
-            }
-
-            const entry = TrellisEntry{ .query_strs = qstrs, .trellis = fresh };
-            if (self.scratch_cachefo.getPtr(gene)) |cache_list| {
-                try cache_list.append(allocator, entry);
-                cached_trellis = &cache_list.items[cache_list.items.len - 1].trellis;
-            }
+        // Build the TrellisEntry query strings (needed if storing a new scratch).
+        var qstrs: std.ArrayListUnmanaged([]u8) = .{};
+        errdefer {
+            for (qstrs.items) |s| allocator.free(s);
+            qstrs.deinit(allocator);
+        }
+        for (query_strs) |s| {
+            try qstrs.append(allocator, try allocator.dupe(u8, s));
         }
 
-        // Now build a working trellis (possibly from cached chunk)
-        var trell = try Trellis.initWithSeqs(allocator, model, query_seqs, cached_trellis);
-        defer trell.deinit(allocator);
+        // trell_ptr points to the trellis on which the algorithm is run.
+        // tmptrell is only used when borrowing from a cached trellis.
+        var tmptrell: ?Trellis = null;
+        defer if (tmptrell) |*t| t.deinit();
 
-        // Run the algorithm
+        const trell_ptr: *Trellis = if (cached_trellis == null) blk: {
+            // No cache: create scratch WITHOUT cached_trellis, store it, use it directly.
+            var fresh = try Trellis.initWithSeqs(allocator, model, query_seqs, null);
+            errdefer fresh.deinit();
+            const entry = TrellisEntry{ .query_strs = qstrs, .trellis = fresh };
+            qstrs = .{}; // ownership transferred to entry
+            if (self.scratch_cachefo.getPtr(gene)) |cache_list| {
+                try cache_list.append(allocator, entry);
+                break :blk &cache_list.items[cache_list.items.len - 1].trellis;
+            } else {
+                // gene not in scratch_cachefo (shouldn't happen after initCache), discard
+                var e = entry;
+                for (e.query_strs.items) |s| allocator.free(s);
+                e.query_strs.deinit(allocator);
+                e.trellis.deinit();
+                return;
+            }
+        } else blk: {
+            // Have cache: create temp trellis that borrows from the cached scratch.
+            tmptrell = try Trellis.initWithSeqs(allocator, model, query_seqs, cached_trellis);
+            break :blk &tmptrell.?;
+        };
+
+        // Run the algorithm on trell_ptr
         const uncorrected_score: f64 = if (std.mem.eql(u8, self.algorithm, "viterbi")) blk: {
-            try trell.viterbi();
-            const sc = trell.ending_viterbi_log_prob;
+            try trell_ptr.viterbi();
+            const sc = trell_ptr.ending_viterbi_log_prob;
             // Store traceback path
             var path = TracebackPath.initWithModel(model);
             errdefer path.deinit(allocator);
             if (sc != -std.math.inf(f64)) {
-                try trell.traceback(&path);
+                try trell_ptr.traceback(&path);
             }
             if (self.paths.getPtr(gene)) |gene_paths| {
                 try gene_paths.put(allocator, kset, path);
@@ -440,8 +459,8 @@ pub const DPHandler = struct {
             }
             break :blk sc;
         } else blk: {
-            try trell.forward();
-            break :blk trell.ending_forward_log_prob;
+            try trell_ptr.forward();
+            break :blk trell_ptr.ending_forward_log_prob;
         };
 
         const gene_choice_score = @log(model.overall_prob);
@@ -488,7 +507,7 @@ pub const DPHandler = struct {
             per_gene_support_this_kset.deinit(allocator);
         }
 
-        for (bcr.GermLines.regions) |region| {
+        for (bcr.germ_lines.regions) |region| {
             try regional_best.put(allocator, try allocator.dupe(u8, region), -std.math.inf(f64));
             try regional_total.put(allocator, try allocator.dupe(u8, region), -std.math.inf(f64));
 
@@ -578,13 +597,13 @@ pub const DPHandler = struct {
         try total_scores.put(allocator, kset, mathutils.add_with_minus_infinities(rt_v, mathutils.add_with_minus_infinities(rt_d, rt_j)));
 
         // Compute per_gene_support across ksets
-        for (bcr.GermLines.regions) |region| {
+        for (bcr.germ_lines.regions) |region| {
             const gene_set = only_genes.get(region) orelse continue;
             var gene_it = gene_set.iterator();
             while (gene_it.next()) |gene_entry| {
                 const gene = gene_entry.key_ptr.*;
                 var score_this_kset: f64 = 0.0;
-                for (bcr.GermLines.regions) |tmpreg| {
+                for (bcr.germ_lines.regions) |tmpreg| {
                     if (std.mem.eql(u8, tmpreg, region)) {
                         score_this_kset = mathutils.add_with_minus_infinities(score_this_kset, per_gene_support_this_kset.get(gene) orelse -std.math.inf(f64));
                     } else {
@@ -618,7 +637,7 @@ pub const DPHandler = struct {
         var event = try RecoEvent.init(allocator);
         errdefer event.deinit(allocator);
 
-        for (bcr.GermLines.regions) |region| {
+        for (bcr.germ_lines.regions) |region| {
             const gene = best_genes_for_kset.get(region) orelse {
                 event.setScore(-std.math.inf(f64));
                 return event;
@@ -648,8 +667,12 @@ pub const DPHandler = struct {
             }
 
             try event.setGene(allocator, region, gene);
-            try event.setDeletion(allocator, region ++ "_3p", self.getErosionLength("right", path_names_list.items, gene));
-            try event.setDeletion(allocator, region ++ "_5p", self.getErosionLength("left", path_names_list.items, gene));
+            const del_3p = try std.fmt.allocPrint(allocator, "{s}_3p", .{region});
+            defer allocator.free(del_3p);
+            const del_5p = try std.fmt.allocPrint(allocator, "{s}_5p", .{region});
+            defer allocator.free(del_5p);
+            try event.setDeletion(allocator, del_3p, self.getErosionLength("right", path_names_list.items, gene));
+            try event.setDeletion(allocator, del_5p, self.getErosionLength("left", path_names_list.items, gene));
             try self.setInsertions(region, path_names_list.items, &event);
         }
 
@@ -796,7 +819,7 @@ pub const DPHandler = struct {
 
         const naive_ev = naive_result.best_event orelse return;
         if (multi_seq_result.best_event) |*me| {
-            for (bcr.GermLines.regions) |region| {
+            for (bcr.germ_lines.regions) |region| {
                 const ng = naive_ev.genes.get(region) orelse continue;
                 try me.setGene(allocator, region, ng);
             }

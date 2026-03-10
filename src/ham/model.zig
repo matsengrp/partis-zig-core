@@ -170,7 +170,7 @@ pub const Model = struct {
         if (self.initial) |init_st| try init_st.reorderTransitions(allocator, &self.states_by_name);
 
         // Check topology
-        try self.checkTopology();
+        try self.checkTopology(allocator);
 
         // Build from_state_indices
         try self.addMaybeFasterFromStateStuff(allocator);
@@ -204,16 +204,16 @@ pub const Model = struct {
 
     /// Topology check: all states reachable from init, each has a non-self path.
     /// Corresponds to C++ `Model::CheckTopology()`.
-    fn checkTopology(self: *Model) !void {
+    fn checkTopology(self: *Model, allocator: std.mem.Allocator) !void {
         const init_st = self.initial orelse return error.NoInitState;
         const n = self.states.items.len;
 
         var states_to_check: std.ArrayListUnmanaged(u16) = .{};
-        defer states_to_check.deinit(std.heap.page_allocator);
-        try self.addToStateIndicesHelper(init_st, &states_to_check);
+        defer states_to_check.deinit(allocator);
+        try self.addToStateIndicesHelper(allocator, init_st, &states_to_check);
 
-        var checked = try std.heap.page_allocator.alloc(bool, n);
-        defer std.heap.page_allocator.free(checked);
+        var checked = try allocator.alloc(bool, n);
+        defer allocator.free(checked);
         for (checked) |*c| c.* = false;
 
         while (states_to_check.items.len > 0) {
@@ -221,8 +221,8 @@ pub const Model = struct {
             if (checked[icheck]) continue;
 
             var tmp: std.ArrayListUnmanaged(u16) = .{};
-            defer tmp.deinit(std.heap.page_allocator);
-            try self.addToStateIndicesHelper(self.states.items[icheck], &tmp);
+            defer tmp.deinit(allocator);
+            try self.addToStateIndicesHelper(allocator, self.states.items[icheck], &tmp);
             const num_visited = tmp.items.len;
 
             if (num_visited == 0) {
@@ -234,7 +234,7 @@ pub const Model = struct {
             }
             checked[icheck] = true;
             for (tmp.items) |idx| {
-                if (!checked[idx]) try states_to_check.append(std.heap.page_allocator, idx);
+                if (!checked[idx]) try states_to_check.append(allocator, idx);
             }
         }
 
@@ -257,11 +257,11 @@ pub const Model = struct {
         }
     }
 
-    fn addToStateIndicesHelper(_: *const Model, st: *const State, visited: *std.ArrayListUnmanaged(u16)) !void {
+    fn addToStateIndicesHelper(_: *const Model, allocator: std.mem.Allocator, st: *const State, visited: *std.ArrayListUnmanaged(u16)) !void {
         for (st.transitions.items) |maybe_t| {
             if (maybe_t) |t| {
                 const to_st = @as(*State, @ptrCast(@alignCast(t.to_state_ptr orelse continue)));
-                try visited.append(std.heap.page_allocator, @intCast(to_st.index));
+                try visited.append(allocator, @intCast(to_st.index));
             }
         }
     }
