@@ -12,3 +12,6 @@ Thumbs.db
 
 # Equivalence harness temp files
 *.ndjson
+
+# Issue drafts
+ISSUE-*.md
