@@ -16,6 +16,9 @@
 
 const std = @import("std");
 
+// ─── internal ham modules (imported so their tests run with `zig build test`) ─
+pub const ham_text = @import("ham/text.zig");
+
 // ─── bcrham entry points ──────────────────────────────────────────────────────
 
 /// Run the full bcrham pipeline for a set of sequences.
