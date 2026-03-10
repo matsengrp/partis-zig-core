@@ -1,0 +1,14 @@
+# Zig build output
+zig-out/
+zig-cache/
+.zig-cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Equivalence harness temp files
+*.ndjson

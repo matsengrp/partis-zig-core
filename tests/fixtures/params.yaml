@@ -1,0 +1,42 @@
+# Minimal HMM parameter file for equivalence harness testing.
+# Derived from the smallest valid input accepted by partis's --parameter-dir.
+# Contains a 3-state HMM (start, match, end) with simple log-probability tables.
+
+schema_version: 1
+
+states:
+  - name: init
+    transitions:
+      - to: match_1
+        log_prob: 0.0  # log(1.0) — always transition to first match state
+
+  - name: match_1
+    emissions:
+      # Log-probabilities over nucleotides {A, C, G, T}
+      A: -1.3862943611  # log(0.25)
+      C: -1.3862943611
+      G: -1.3862943611
+      T: -1.3862943611
+    transitions:
+      - to: match_2
+        log_prob: -0.6931471805  # log(0.5)
+      - to: end
+        log_prob: -0.6931471805
+
+  - name: match_2
+    emissions:
+      A: -1.3862943611
+      C: -1.3862943611
+      G: -1.3862943611
+      T: -1.3862943611
+    transitions:
+      - to: end
+        log_prob: 0.0  # log(1.0)
+
+  - name: end
+    transitions: []
+
+# Germline gene segment labels for ig-sw alignment (minimal)
+germline_V: IGHV1-2*02
+germline_D: IGHD3-10*01
+germline_J: IGHJ4*02
