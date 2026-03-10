@@ -15,7 +15,6 @@ const std = @import("std");
 const mem = std.mem;
 const json = std.json;
 const fs = std.fs;
-const io = std.io;
 
 /// Per-component tolerance configuration loaded from work-queue.json.
 const Tolerance = struct {
@@ -32,8 +31,12 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
+    var stdout_buf: [65536]u8 = undefined;
+    var stdout_file_writer = fs.File.stdout().writer(&stdout_buf);
+    const stdout = &stdout_file_writer.interface;
+
     if (args.len < 4) {
-        try io.getStdErr().writer().print(
+        std.debug.print(
             "usage: compare <component-id> <cpp-stream-file> <zig-stream-file> [work-queue-json]\n",
             .{},
         );
@@ -45,27 +48,23 @@ pub fn main() !void {
     const zig_path = args[3];
     const work_queue_path: ?[]const u8 = if (args.len >= 5) args[4] else null;
 
-    const stdout = io.getStdOut().writer();
-
-    // Load tolerance for this component from work-queue.json, or use defaults.
     const tolerance = try loadTolerance(allocator, work_queue_path, component_id);
 
     try stdout.print("equivalence-check: {s}\n", .{component_id});
 
     // Read both streams.
     const cpp_data = fs.cwd().readFileAlloc(allocator, cpp_path, 64 * 1024 * 1024) catch |err| {
-        try io.getStdErr().writer().print("ERROR: cannot read cpp stream '{s}': {}\n", .{ cpp_path, err });
+        std.debug.print("ERROR: cannot read cpp stream '{s}': {}\n", .{ cpp_path, err });
         std.process.exit(2);
     };
     defer allocator.free(cpp_data);
 
     const zig_data = fs.cwd().readFileAlloc(allocator, zig_path, 64 * 1024 * 1024) catch |err| {
-        try io.getStdErr().writer().print("ERROR: cannot read zig stream '{s}': {}\n", .{ zig_path, err });
+        std.debug.print("ERROR: cannot read zig stream '{s}': {}\n", .{ zig_path, err });
         std.process.exit(2);
     };
     defer allocator.free(zig_data);
 
-    // Parse streams into lines.
     const cpp_lines = try splitLines(allocator, cpp_data);
     defer allocator.free(cpp_lines);
     const zig_lines = try splitLines(allocator, zig_data);
@@ -77,6 +76,7 @@ pub fn main() !void {
             .{ cpp_lines.len, zig_lines.len },
         );
         try stdout.print("RESULT: FAIL (checkpoint count mismatch)\n", .{});
+        try stdout_file_writer.interface.flush();
         std.process.exit(1);
     }
 
@@ -102,7 +102,13 @@ pub fn main() !void {
         } else {
             try stdout.print(
                 "  checkpoint {s:<40}  FAIL  cpp={s}  zig={s}  delta={s}  threshold={s}\n",
-                .{ result.name, result.cpp_val, result.zig_val, result.delta_info orelse "?", result.threshold_info orelse "?" },
+                .{
+                    result.name,
+                    result.cpp_val,
+                    result.zig_val,
+                    result.delta_info orelse "?",
+                    result.threshold_info orelse "?",
+                },
             );
             fail_count += 1;
         }
@@ -111,14 +117,15 @@ pub fn main() !void {
     const total = pass_count + fail_count;
     if (fail_count == 0) {
         try stdout.print("\nRESULT: PASS ({d}/{d} checkpoints)\n", .{ pass_count, total });
+        try stdout_file_writer.interface.flush();
         std.process.exit(0);
     } else {
         try stdout.print("\nRESULT: FAIL ({d}/{d} checkpoints passed)\n", .{ pass_count, total });
+        try stdout_file_writer.interface.flush();
         std.process.exit(1);
     }
 }
 
-/// Result of comparing one checkpoint line.
 const CheckpointResult = struct {
     name: []const u8,
     passed: bool,
@@ -135,10 +142,6 @@ fn compareCheckpoint(
     tolerance: Tolerance,
     idx: usize,
 ) !CheckpointResult {
-    _ = allocator;
-    _ = tolerance;
-
-    // Parse both JSON objects.
     const cpp_parsed = json.parseFromSlice(json.Value, allocator, cpp_line, .{}) catch {
         return CheckpointResult{
             .name = try std.fmt.allocPrint(allocator, "[{d}]", .{idx}),
@@ -168,7 +171,6 @@ fn compareCheckpoint(
         else => return error.NotAnObject,
     };
 
-    // Extract checkpoint name.
     const name = if (cpp_obj.get("checkpoint")) |v|
         switch (v) {
             .string => |s| s,
@@ -177,8 +179,7 @@ fn compareCheckpoint(
     else
         "(unnamed)";
 
-    // Compare all numeric fields using tolerance.
-    // For now: if both JSON strings are identical, it's an exact match.
+    // Exact match fast path.
     if (mem.eql(u8, cpp_line, zig_line)) {
         return CheckpointResult{ .name = name, .passed = true };
     }
@@ -204,7 +205,11 @@ fn compareCheckpoint(
             first_fail_cpp = try std.fmt.allocPrint(allocator, "{}", .{cpp_val});
             first_fail_zig = try std.fmt.allocPrint(allocator, "{}", .{zig_val});
             first_fail_delta = try std.fmt.allocPrint(allocator, "field={s}", .{key});
-            first_fail_threshold = try std.fmt.allocPrint(allocator, "log_prob_abs={e:.1}", .{tolerance.log_prob_absolute});
+            first_fail_threshold = try std.fmt.allocPrint(
+                allocator,
+                "log_prob_abs={e:.1}",
+                .{tolerance.log_prob_absolute},
+            );
         }
     }
 
@@ -227,7 +232,6 @@ fn valuesWithinTolerance(cpp: json.Value, zig_val: json.Value, tol: Tolerance) !
                 else => return false,
             };
             const delta = @abs(cf - zf);
-            // Use log-prob absolute threshold (most common in HMM context).
             return delta <= tol.log_prob_absolute;
         },
         .integer => |ci| {
@@ -251,7 +255,7 @@ fn valuesWithinTolerance(cpp: json.Value, zig_val: json.Value, tol: Tolerance) !
             };
             return mem.eql(u8, cs, zs);
         },
-        else => return mem.eql(u8, "null", "null"), // null == null
+        else => return true, // null == null, arrays compared later if needed
     }
 }
 
@@ -317,11 +321,11 @@ fn loadTolerance(allocator: mem.Allocator, work_queue_path: ?[]const u8, compone
 }
 
 fn splitLines(allocator: mem.Allocator, data: []const u8) ![][]const u8 {
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var iter = mem.splitScalar(u8, data, '\n');
     while (iter.next()) |line| {
         const trimmed = mem.trim(u8, line, " \r\t");
-        if (trimmed.len > 0) try lines.append(trimmed);
+        if (trimmed.len > 0) try lines.append(allocator, trimmed);
     }
-    return lines.toOwnedSlice();
+    return lines.toOwnedSlice(allocator);
 }
