@@ -26,6 +26,8 @@ pub const ham_sequences = @import("ham/sequences.zig");
 pub const ham_lexical_table = @import("ham/lexical_table.zig");
 pub const ham_emission = @import("ham/emission.zig");
 pub const ham_state = @import("ham/state.zig");
+pub const ham_hmm_yaml = @import("ham/hmm_yaml.zig");
+pub const ham_model = @import("ham/model.zig");
 
 // ─── bcrham entry points ──────────────────────────────────────────────────────
 
