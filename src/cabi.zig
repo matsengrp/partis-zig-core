@@ -24,6 +24,7 @@ pub const ham_track = @import("ham/track.zig");
 pub const ham_cluster_path = @import("ham/cluster_path.zig");
 pub const ham_sequences = @import("ham/sequences.zig");
 pub const ham_lexical_table = @import("ham/lexical_table.zig");
+pub const ham_emission = @import("ham/emission.zig");
 
 // ─── bcrham entry points ──────────────────────────────────────────────────────
 
