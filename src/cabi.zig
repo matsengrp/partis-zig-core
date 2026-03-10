@@ -19,6 +19,7 @@ const std = @import("std");
 // ─── internal ham modules (imported so their tests run with `zig build test`) ─
 pub const ham_text = @import("ham/text.zig");
 pub const ham_mathutils = @import("ham/mathutils.zig");
+pub const ham_transitions = @import("ham/transitions.zig");
 
 // ─── bcrham entry points ──────────────────────────────────────────────────────
 
