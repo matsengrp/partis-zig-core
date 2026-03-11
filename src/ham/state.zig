@@ -64,6 +64,8 @@ pub const State = struct {
     from_states: StateBitset,
     /// Indices of states in `from_states` (faster iteration than bitset scan).
     from_state_indices: std.ArrayListUnmanaged(usize),
+    /// Indices of states in `to_states` (faster iteration than bitset scan).
+    to_state_indices: std.ArrayListUnmanaged(usize),
 
     /// Create an empty State.
     /// Corresponds to C++ `State()`.
@@ -80,6 +82,7 @@ pub const State = struct {
             .to_states = .{},
             .from_states = .{},
             .from_state_indices = .{},
+            .to_state_indices = .{},
         };
     }
 
@@ -100,6 +103,7 @@ pub const State = struct {
         }
         self.emission.deinit(allocator);
         self.from_state_indices.deinit(allocator);
+        self.to_state_indices.deinit(allocator);
     }
 
     /// Parse state data from already-extracted fields.
@@ -209,7 +213,7 @@ pub const State = struct {
 
     /// Transition log-probability to state at index `to_state` (post-reorder).
     /// Returns -inf if no transition exists to that state.
-    pub fn transitionLogprob(self: *const State, to_state: usize) f64 {
+    pub inline fn transitionLogprob(self: *const State, to_state: usize) f64 {
         if (to_state >= self.transitions.items.len) return -std.math.inf(f64);
         const maybe_t = self.transitions.items[to_state];
         return if (maybe_t) |t| t.log_prob else -std.math.inf(f64);
@@ -278,6 +282,16 @@ pub const State = struct {
         for (0..STATE_MAX) |i| {
             if (self.from_states.get(i)) {
                 try self.from_state_indices.append(allocator, i);
+            }
+        }
+    }
+
+    /// Build `to_state_indices` from `to_states` bitset.
+    pub fn setToStateIndices(self: *State, allocator: std.mem.Allocator) !void {
+        self.to_state_indices.clearRetainingCapacity();
+        for (0..STATE_MAX) |i| {
+            if (self.to_states.get(i)) {
+                try self.to_state_indices.append(allocator, i);
             }
         }
     }

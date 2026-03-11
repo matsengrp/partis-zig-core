@@ -194,12 +194,19 @@ pub const Model = struct {
         }
     }
 
-    /// Build from_state_indices for all states.
+    /// Build from_state_indices and to_state_indices for all states.
     /// Corresponds to C++ `Model::AddMaybeFasterFromStateStuff()`.
     fn addMaybeFasterFromStateStuff(self: *Model, allocator: std.mem.Allocator) !void {
-        if (self.initial) |init_st| try init_st.setFromStateIndices(allocator);
-        for (self.states.items) |st| try st.setFromStateIndices(allocator);
+        if (self.initial) |init_st| {
+            try init_st.setFromStateIndices(allocator);
+            try init_st.setToStateIndices(allocator);
+        }
+        for (self.states.items) |st| {
+            try st.setFromStateIndices(allocator);
+            try st.setToStateIndices(allocator);
+        }
         try self.ending.setFromStateIndices(allocator);
+        try self.ending.setToStateIndices(allocator);
     }
 
     /// Topology check: all states reachable from init, each has a non-self path.
@@ -289,7 +296,7 @@ pub const Model = struct {
         return self.states_by_name.get(name);
     }
 
-    pub fn stateByIndex(self: *const Model, idx: usize) *State {
+    pub inline fn stateByIndex(self: *const Model, idx: usize) *State {
         return self.states.items[idx];
     }
 

@@ -533,9 +533,7 @@ pub const DPHandler = struct {
                         if (gp.get(partial_match)) |cached_path| {
                             var path_copy = TracebackPath.init();
                             errdefer path_copy.deinit(allocator);
-                            for (cached_path.path.items) |idx| {
-                                try path_copy.pushBack(allocator, idx);
-                            }
+                            try path_copy.path.appendSlice(allocator, cached_path.path.items);
                             path_copy.setScore(cached_path.score);
                             path_copy.setModel(cached_path.hmm.?);
                             try gp.put(allocator, kset, path_copy);

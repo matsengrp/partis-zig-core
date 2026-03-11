@@ -52,6 +52,9 @@ pub const Trellis = struct {
     scoring_current: []f64,
     scoring_previous: []f64,
 
+    /// Scratch boolean array for deduplicating next_states additions.
+    next_seen: [state_mod.STATE_MAX]bool,
+
     allocator: std.mem.Allocator,
 
     /// Create a Trellis for a single Sequence.
@@ -75,8 +78,8 @@ pub const Trellis = struct {
         const n = hmm.nStates();
         const scoring_current = try allocator.alloc(f64, n);
         const scoring_previous = try allocator.alloc(f64, n);
-        for (scoring_current) |*v| v.* = -std.math.inf(f64);
-        for (scoring_previous) |*v| v.* = -std.math.inf(f64);
+        @memset(scoring_current, -std.math.inf(f64));
+        @memset(scoring_previous, -std.math.inf(f64));
 
         const t = Trellis{
             .hmm = hmm,
@@ -95,6 +98,7 @@ pub const Trellis = struct {
             .viterbi_indices_ptr = null,
             .scoring_current = scoring_current,
             .scoring_previous = scoring_previous,
+            .next_seen = [_]bool{false} ** state_mod.STATE_MAX,
             .allocator = allocator,
         };
         return t;
@@ -134,8 +138,8 @@ pub const Trellis = struct {
         // Initialize storage
         try self.viterbi_log_probs.resize(allocator, seq_len);
         try self.viterbi_indices.resize(allocator, seq_len);
-        for (self.viterbi_log_probs.items) |*v| v.* = -std.math.inf(f64);
-        for (self.viterbi_indices.items) |*v| v.* = -1;
+        @memset(self.viterbi_log_probs.items, -std.math.inf(f64));
+        @memset(self.viterbi_indices.items, -1);
         self.viterbi_log_probs_ptr = &self.viterbi_log_probs;
         self.viterbi_indices_ptr = &self.viterbi_indices;
 
@@ -144,41 +148,46 @@ pub const Trellis = struct {
         self.traceback_table.clearRetainingCapacity();
         for (0..seq_len) |_| {
             const row = try allocator.alloc(i16, n_states);
-            for (row) |*v| v.* = -1;
+            @memset(row, -1);
             try self.traceback_table.append(allocator, row);
         }
         self.traceback_table_ptr = &self.traceback_table;
 
         // Reset scoring columns
-        for (self.scoring_current) |*v| v.* = -std.math.inf(f64);
-        for (self.scoring_previous) |*v| v.* = -std.math.inf(f64);
+        @memset(self.scoring_current, -std.math.inf(f64));
+        @memset(self.scoring_previous, -std.math.inf(f64));
 
-        var current_states = state_mod.StateBitset{};
-        var next_states = state_mod.StateBitset{};
+        var current_states = std.ArrayListUnmanaged(usize){};
+        defer current_states.deinit(allocator);
+        var next_states = std.ArrayListUnmanaged(usize){};
+        defer next_states.deinit(allocator);
 
         // Position 0: transitions from init state
         const init_st = self.hmm.initial orelse return error.NoInitState;
-        for (0..n_states) |i_st| {
-            if (!self.hmm.initial.?.to_states.get(i_st)) continue;
+        // Reset next_seen before populating position 0
+        @memset(&self.next_seen, false);
+        for (init_st.to_state_indices.items) |i_st| {
             const emission_val = self.hmm.stateByIndex(i_st).emissionLogprobSeqs(&self.seqs, 0);
             const dpval = emission_val + init_st.transitionLogprob(i_st);
             if (std.math.isNegativeInf(dpval)) continue;
             self.scoring_current[i_st] = dpval;
             self.cacheViterbiVals(0, dpval, i_st);
-            // Mark outbound transitions for next position
-            const to_states = &self.hmm.stateByIndex(i_st).to_states;
-            for (0..state_mod.STATE_MAX) |j| {
-                if (to_states.get(j)) next_states.set(j);
+            // Mark outbound transitions for next position (deduplicated)
+            for (self.hmm.stateByIndex(i_st).to_state_indices.items) |j| {
+                if (!self.next_seen[j]) {
+                    self.next_seen[j] = true;
+                    try next_states.append(allocator, j);
+                }
             }
         }
 
         // Positions 1..seq_len-1
         var position: usize = 1;
         while (position < seq_len) : (position += 1) {
-            self.swapColumns(&current_states, &next_states);
-            self.middleViterbiVals(current_states, &next_states, position);
+            try self.swapColumnsActive(allocator, &current_states, &next_states);
+            try self.middleViterbiVals(allocator, current_states, &next_states, position);
         }
-        self.swapColumns(&current_states, &next_states);
+        try self.swapColumnsActive(allocator, &current_states, &next_states);
 
         // Compute ending probability
         self.ending_viterbi_pointer = -1;
@@ -209,27 +218,33 @@ pub const Trellis = struct {
 
         // Initialize storage
         try self.forward_log_probs.resize(allocator, seq_len);
-        for (self.forward_log_probs.items) |*v| v.* = -std.math.inf(f64);
+        @memset(self.forward_log_probs.items, -std.math.inf(f64));
         self.forward_log_probs_ptr = &self.forward_log_probs;
 
         // Reset scoring columns
-        for (self.scoring_current) |*v| v.* = -std.math.inf(f64);
-        for (self.scoring_previous) |*v| v.* = -std.math.inf(f64);
+        @memset(self.scoring_current, -std.math.inf(f64));
+        @memset(self.scoring_previous, -std.math.inf(f64));
 
-        var current_states = state_mod.StateBitset{};
-        var next_states = state_mod.StateBitset{};
+        var current_states = std.ArrayListUnmanaged(usize){};
+        defer current_states.deinit(allocator);
+        var next_states = std.ArrayListUnmanaged(usize){};
+        defer next_states.deinit(allocator);
 
         // Position 0: transitions from init state
         const init_st = self.hmm.initial orelse return error.NoInitState;
-        for (0..n_states) |i_st| {
-            if (!self.hmm.initial.?.to_states.get(i_st)) continue;
+        // Reset next_seen before populating position 0
+        @memset(&self.next_seen, false);
+        for (init_st.to_state_indices.items) |i_st| {
             const emission_val = self.hmm.stateByIndex(i_st).emissionLogprobSeqs(&self.seqs, 0);
             const dpval = emission_val + init_st.transitionLogprob(i_st);
             if (std.math.isNegativeInf(dpval)) continue;
             self.scoring_current[i_st] = dpval;
-            const to_states = &self.hmm.stateByIndex(i_st).to_states;
-            for (0..state_mod.STATE_MAX) |j| {
-                if (to_states.get(j)) next_states.set(j);
+            // Mark outbound transitions for next position (deduplicated)
+            for (self.hmm.stateByIndex(i_st).to_state_indices.items) |j| {
+                if (!self.next_seen[j]) {
+                    self.next_seen[j] = true;
+                    try next_states.append(allocator, j);
+                }
             }
             self.cacheForwardVals(0, dpval, i_st);
         }
@@ -237,10 +252,10 @@ pub const Trellis = struct {
         // Positions 1..seq_len-1
         var position: usize = 1;
         while (position < seq_len) : (position += 1) {
-            self.swapColumns(&current_states, &next_states);
-            self.middleForwardVals(current_states, &next_states, position);
+            try self.swapColumnsActive(allocator, &current_states, &next_states);
+            try self.middleForwardVals(allocator, current_states, &next_states, position);
         }
-        self.swapColumns(&current_states, &next_states);
+        try self.swapColumnsActive(allocator, &current_states, &next_states);
 
         // Compute ending probability
         self.ending_forward_log_prob = -std.math.inf(f64);
@@ -277,32 +292,45 @@ pub const Trellis = struct {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    fn swapColumns(self: *Trellis, current_states: *state_mod.StateBitset, next_states: *state_mod.StateBitset) void {
+    fn swapColumnsActive(
+        self: *Trellis,
+        allocator: std.mem.Allocator,
+        current_states: *std.ArrayListUnmanaged(usize),
+        next_states: *std.ArrayListUnmanaged(usize),
+    ) !void {
         // Swap scoring_current ↔ scoring_previous
         const tmp = self.scoring_previous;
         self.scoring_previous = self.scoring_current;
         self.scoring_current = tmp;
-        for (self.scoring_current) |*v| v.* = -std.math.inf(f64);
+        @memset(self.scoring_current, -std.math.inf(f64));
 
-        // current_states ← next_states; next_states ← all-false
-        for (0..state_mod.STATE_MAX) |i| {
-            current_states.bits[i] = next_states.bits[i];
-            next_states.bits[i] = false;
-        }
+        // Clear next_seen for all indices that were in next_states
+        // (they will become current_states; next_seen tracks what's queued for the NEW next)
+        for (next_states.items) |j| self.next_seen[j] = false;
+
+        // current_states ← next_states; next_states ← empty
+        // Swap the backing allocations to avoid reallocation
+        const old_current_items = current_states.items;
+        const old_current_cap = current_states.capacity;
+        current_states.items = next_states.items;
+        current_states.capacity = next_states.capacity;
+        next_states.items = old_current_items;
+        next_states.capacity = old_current_cap;
+        next_states.clearRetainingCapacity();
+        _ = allocator; // backing storage reuse avoids new allocations
     }
 
     fn middleViterbiVals(
         self: *Trellis,
-        current_states: state_mod.StateBitset,
-        next_states: *state_mod.StateBitset,
+        allocator: std.mem.Allocator,
+        current_states: std.ArrayListUnmanaged(usize),
+        next_states: *std.ArrayListUnmanaged(usize),
         position: usize,
-    ) void {
-        const n_states = self.hmm.nStates();
-        for (0..n_states) |i_st_cur| {
-            if (!current_states.get(i_st_cur)) continue;
-            const emission_val = self.hmm.stateByIndex(i_st_cur).emissionLogprobSeqs(&self.seqs, position);
-            if (std.math.isNegativeInf(emission_val)) continue;
+    ) !void {
+        for (current_states.items) |i_st_cur| {
             const st_cur = self.hmm.stateByIndex(i_st_cur);
+            const emission_val = st_cur.emissionLogprobSeqs(&self.seqs, position);
+            if (std.math.isNegativeInf(emission_val)) continue;
             for (st_cur.from_state_indices.items) |i_st_prev| {
                 const prev_val = self.scoring_previous[i_st_prev];
                 if (std.math.isNegativeInf(prev_val)) continue;
@@ -314,10 +342,12 @@ pub const Trellis = struct {
                     }
                 }
                 self.cacheViterbiVals(position, dpval, i_st_cur);
-                // Mark outbound transitions
-                const to_states = &st_cur.to_states;
-                for (0..state_mod.STATE_MAX) |j| {
-                    if (to_states.get(j)) next_states.set(j);
+            }
+            // Mark outbound transitions (once per current state, deduplicated via next_seen)
+            for (st_cur.to_state_indices.items) |j| {
+                if (!self.next_seen[j]) {
+                    self.next_seen[j] = true;
+                    try next_states.append(allocator, j);
                 }
             }
         }
@@ -325,25 +355,27 @@ pub const Trellis = struct {
 
     fn middleForwardVals(
         self: *Trellis,
-        current_states: state_mod.StateBitset,
-        next_states: *state_mod.StateBitset,
+        allocator: std.mem.Allocator,
+        current_states: std.ArrayListUnmanaged(usize),
+        next_states: *std.ArrayListUnmanaged(usize),
         position: usize,
-    ) void {
-        const n_states = self.hmm.nStates();
-        for (0..n_states) |i_st_cur| {
-            if (!current_states.get(i_st_cur)) continue;
-            const emission_val = self.hmm.stateByIndex(i_st_cur).emissionLogprobSeqs(&self.seqs, position);
-            if (std.math.isNegativeInf(emission_val)) continue;
+    ) !void {
+        for (current_states.items) |i_st_cur| {
             const st_cur = self.hmm.stateByIndex(i_st_cur);
+            const emission_val = st_cur.emissionLogprobSeqs(&self.seqs, position);
+            if (std.math.isNegativeInf(emission_val)) continue;
             for (st_cur.from_state_indices.items) |i_st_prev| {
                 const prev_val = self.scoring_previous[i_st_prev];
                 if (std.math.isNegativeInf(prev_val)) continue;
                 const dpval = prev_val + emission_val + self.hmm.stateByIndex(i_st_prev).transitionLogprob(i_st_cur);
                 self.scoring_current[i_st_cur] = mathutils.add_in_log_space(dpval, self.scoring_current[i_st_cur]);
                 self.cacheForwardVals(position, dpval, i_st_cur);
-                const to_states = &st_cur.to_states;
-                for (0..state_mod.STATE_MAX) |j| {
-                    if (to_states.get(j)) next_states.set(j);
+            }
+            // Mark outbound transitions (once per current state, deduplicated via next_seen)
+            for (st_cur.to_state_indices.items) |j| {
+                if (!self.next_seen[j]) {
+                    self.next_seen[j] = true;
+                    try next_states.append(allocator, j);
                 }
             }
         }

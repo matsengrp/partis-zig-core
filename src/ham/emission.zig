@@ -89,7 +89,7 @@ pub const Emission = struct {
 
     /// Score (log-probability) for a digitized symbol index.
     /// Corresponds to C++ `inline double score(uint8_t index)`.
-    pub fn scoreIndex(self: *const Emission, index: u8) f64 {
+    pub inline fn scoreIndex(self: *const Emission, index: u8) f64 {
         return self.scores.logProb(index);
     }
 
