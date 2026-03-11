@@ -343,6 +343,14 @@ pub const Glomerator = struct {
         if (self.args.annotationfile.len > 0) {
             // WriteAnnotations is deprecated in C++; skip
         }
+        {
+            var buf: [256]u8 = undefined;
+            const s = try std.fmt.bufPrint(&buf,
+                "        calcd:   vtb {: <4}  fwd {: <4}  hfrac {: <8}\n        merged:  hfrac {: <4} lratio {: <4}\n",
+                .{ @as(u32, @intCast(self.n_vtb_calculated)), @as(u32, @intCast(self.n_fwd_calculated)), @as(u32, @intCast(self.n_hfrac_calculated)), @as(u32, @intCast(self.n_hfrac_merges)), @as(u32, @intCast(self.n_lratio_merges)) },
+            );
+            try std.fs.File.stdout().writeAll(s);
+        }
     }
 
     /// Cache all naive sequences.
@@ -363,7 +371,7 @@ pub const Glomerator = struct {
     fn readCacheFile(self: *Glomerator) !void {
         const allocator = self.allocator;
         if (self.args.input_cachefname.len == 0) {
-            std.debug.print("        read-cache:  logprobs 0   naive-seqs 0\n", .{});
+            try std.fs.File.stdout().writeAll("        read-cache:  logprobs 0   naive-seqs 0\n");
             return;
         }
 
@@ -421,9 +429,11 @@ pub const Glomerator = struct {
             }
         }
 
-        std.debug.print("        read-cache:  logprobs {d}   naive-seqs {d}\n", .{
-            self.log_probs.count(), self.naive_seqs.count(),
-        });
+        {
+            var buf: [128]u8 = undefined;
+            const s = try std.fmt.bufPrint(&buf, "        read-cache:  logprobs {d}   naive-seqs {d}\n", .{ self.log_probs.count(), self.naive_seqs.count() });
+            try std.fs.File.stdout().writeAll(s);
+        }
     }
 
     fn writeCacheFile(self: *Glomerator) !void {

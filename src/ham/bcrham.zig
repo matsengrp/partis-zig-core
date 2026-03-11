@@ -110,7 +110,11 @@ pub fn runAlgorithm(
         else if (std.mem.eql(u8, args.algorithm, "forward"))
             n_fwd += 1;
     }
-    std.debug.print("        calcd:   vtb {d:<4}  fwd {d:<4}\n", .{ n_vtb, n_fwd });
+    {
+        var buf: [128]u8 = undefined;
+        const s = try std.fmt.bufPrint(&buf, "        calcd:   vtb {: <4}  fwd {: <4}\n", .{ @as(u32, @intCast(n_vtb)), @as(u32, @intCast(n_fwd)) });
+        try std.fs.File.stdout().writeAll(s);
+    }
 }
 
 // ─── top-level run ────────────────────────────────────────────────────────────
@@ -285,5 +289,9 @@ pub fn run(allocator: std.mem.Allocator, argv: []const [*:0]const u8) !void {
     try bw.interface.flush();
 
     const elapsed_s = @as(f64, @floatFromInt(std.time.milliTimestamp() - start)) / 1000.0;
-    std.debug.print("        time: bcrham {d:.1}\n", .{elapsed_s});
+    {
+        var buf: [64]u8 = undefined;
+        const s = try std.fmt.bufPrint(&buf, "        time: bcrham {d:.1}\n", .{elapsed_s});
+        try std.fs.File.stdout().writeAll(s);
+    }
 }
