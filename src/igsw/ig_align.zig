@@ -10,6 +10,13 @@
 
 const std = @import("std");
 
+// ksw.zig exports C-ABI ksw_align/ksw_global/ksw_qinit/ksw_extend, replacing
+// the C ksw.c which uses SSE2 intrinsics. Importing it here compiles it into
+// the same artifact so the linker resolves ig_align.c's references to ksw_*.
+comptime {
+    _ = @import("ksw.zig");
+}
+
 pub const c = @cImport({
     @cInclude("ig_align.h");
 });

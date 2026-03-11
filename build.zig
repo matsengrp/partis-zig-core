@@ -74,9 +74,9 @@ pub fn build(b: *std.Build) void {
     });
     // -fno-sanitize=undefined: ig_align.c has a pre-existing shift-overflow UB
     // that is harmless in practice but trips Zig's clang UBSan in Debug builds.
+    // ksw.c is NOT listed here — it is replaced by src/igsw/ksw.zig (cross-platform SIMD).
     const igsw_c_flags = &.{ "-std=gnu99", "-O2", "-fno-sanitize=undefined" };
     igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/ig_align.c"), .flags = igsw_c_flags });
-    igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/ksw.c"), .flags = igsw_c_flags });
     igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/kstring.c"), .flags = igsw_c_flags });
     igsw_exe.addIncludePath(b.path("src/igsw/c"));
     igsw_exe.linkSystemLibrary("z");
