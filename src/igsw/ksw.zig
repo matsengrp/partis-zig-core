@@ -331,8 +331,8 @@ fn ksw_i16(q: *Kswq, tlen: c_int, target: [*]const u8, _gapo: c_int, _gape: c_in
     const gapoe: V8i16 = @splat(@intCast(_gapo + _gape));
     const gape_v: V8i16 = @splat(@intCast(_gape));
 
-    const H0: [*]V8i16 = @ptrCast(q.H0);
-    const H1: [*]V8i16 = @ptrCast(q.H1);
+    var H0: [*]V8i16 = @ptrCast(q.H0);
+    var H1: [*]V8i16 = @ptrCast(q.H1);
     const E: [*]V8i16 = @ptrCast(q.E);
     const Hmax: [*]V8i16 = @ptrCast(q.Hmax);
     const qp: [*]V8i16 = @ptrCast(q.qp);
@@ -412,10 +412,10 @@ fn ksw_i16(q: *Kswq, tlen: c_int, target: [*]const u8, _gapo: c_int, _gape: c_in
             if (gmax >= endsc) break;
         }
 
-        // swap H0 and H1 by swapping the pointer fields in q
-        const tmp_H0 = q.H0;
-        q.H0 = q.H1;
-        q.H1 = tmp_H0;
+        // Swap H0 ↔ H1 (local vars, like ksw_u8)
+        const tmp_H = H0;
+        H0 = H1;
+        H1 = tmp_H;
     }
 
     r.score = gmax;
