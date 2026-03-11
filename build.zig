@@ -60,6 +60,27 @@ pub fn build(b: *std.Build) void {
     const lib_step = b.step("lib", "Build C ABI shared library (requires -Digsw-src=...)");
     lib_step.dependOn(&b.addInstallArtifact(lib, .{}).step);
 
+    // ── partis-zig-igsw executable: ig-sw-compatible CLI (vendored C sources) ─
+    // `zig build` produces this by default alongside partis-zig-core.
+    const igsw_exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/igsw/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    igsw_exe_mod.addIncludePath(b.path("src/igsw/c"));
+    const igsw_exe = b.addExecutable(.{
+        .name = "partis-zig-igsw",
+        .root_module = igsw_exe_mod,
+    });
+    const igsw_c_flags = &.{ "-std=gnu99", "-O2" };
+    igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/ig_align.c"), .flags = igsw_c_flags });
+    igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/ksw.c"), .flags = igsw_c_flags });
+    igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/kstring.c"), .flags = igsw_c_flags });
+    igsw_exe.addIncludePath(b.path("src/igsw/c"));
+    igsw_exe.linkSystemLibrary("z");
+    igsw_exe.linkLibC();
+    b.installArtifact(igsw_exe);
+
     // ── test: unit test runner (ham modules only, no ig-sw needed) ────────
     const ham_test_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),

@@ -46,7 +46,7 @@ pub fn alignReads(
     c.ig_align_reads(
         ref_path,
         n_extra,
-        if (extra_ptr) |p| @ptrCast(p) else null,
+        if (extra_ptr) |p| @ptrCast(@constCast(p)) else null,
         qry_path,
         output_path,
         match,
