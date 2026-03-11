@@ -247,9 +247,8 @@ fn ksw_u8(q: *Kswq, tlen: c_int, target: [*]const u8, _gapo: c_int, _gape: c_int
                 h = @max(h, f);
                 H1[jj] = h;
                 h = h -| gapoe;
-                f = @max(h, f -| gape_v);
-                // early exit: if f -| h == 0 for all lanes, f can no longer update H
-                const diff = f -| h; // f -| h == 0 means f <= h elementwise
+                f = f -| gape_v; // lazy-F: only decrement, no max with h
+                const diff = f -| h;
                 if (@reduce(.Or, diff != zero)) done = false;
             }
             if (done) break;
@@ -385,7 +384,7 @@ fn ksw_i16(q: *Kswq, tlen: c_int, target: [*]const u8, _gapo: c_int, _gape: c_in
                 h = @max(h, f);
                 H1[jj] = h;
                 h = subsEpu16(h, gapoe);
-                f = @max(h, subsEpu16(f, gape_v));
+                f = subsEpu16(f, gape_v); // lazy-F: only decrement, no max with h
                 if (@reduce(.Or, f > h)) done = false;
             }
             if (done) break;
