@@ -212,6 +212,26 @@ pub fn run(allocator: std.mem.Allocator, argv: []const [*:0]const u8) !void {
             }
         }
     }
+    // Validate required arguments
+    var missing = false;
+    if (args.hmmdir.len == 0) { std.debug.print("ERROR: missing required argument --hmmdir\n", .{}); missing = true; }
+    if (args.datadir.len == 0) { std.debug.print("ERROR: missing required argument --datadir\n", .{}); missing = true; }
+    if (args.infile.len == 0) { std.debug.print("ERROR: missing required argument --infile\n", .{}); missing = true; }
+    if (args.outfile.len == 0) { std.debug.print("ERROR: missing required argument --outfile\n", .{}); missing = true; }
+    if (args.locus.len == 0) { std.debug.print("ERROR: missing required argument --locus\n", .{}); missing = true; }
+    if (args.algorithm.len == 0) { std.debug.print("ERROR: missing required argument --algorithm\n", .{}); missing = true; }
+    if (missing) {
+        std.debug.print(
+            \\
+            \\Usage: partis-zig-core --hmmdir <dir> --datadir <dir> --infile <file>
+            \\                       --outfile <file> --locus <igh|igk|igl|tra|trb|trg|trd>
+            \\                       --algorithm <viterbi|forward> [--ambig-base <base>]
+            \\                       [--debug <0|1|2>] [--random-seed <n>] [--partition]
+            \\
+        , .{});
+        std.process.exit(1);
+    }
+
     if (args.infile.len > 0) try args.readInfile(allocator);
 
     // Build track
