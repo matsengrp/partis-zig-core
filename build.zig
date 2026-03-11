@@ -72,7 +72,9 @@ pub fn build(b: *std.Build) void {
         .name = "partis-zig-igsw",
         .root_module = igsw_exe_mod,
     });
-    const igsw_c_flags = &.{ "-std=gnu99", "-O2" };
+    // -fno-sanitize=undefined: ig_align.c has a pre-existing shift-overflow UB
+    // that is harmless in practice but trips Zig's clang UBSan in Debug builds.
+    const igsw_c_flags = &.{ "-std=gnu99", "-O2", "-fno-sanitize=undefined" };
     igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/ig_align.c"), .flags = igsw_c_flags });
     igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/ksw.c"), .flags = igsw_c_flags });
     igsw_exe.addCSourceFile(.{ .file = b.path("src/igsw/c/kstring.c"), .flags = igsw_c_flags });
