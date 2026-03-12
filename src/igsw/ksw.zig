@@ -176,6 +176,7 @@ pub export fn ksw_qinit(
 
 fn ksw_u8(q: *Kswq, tlen: c_int, target: [*]const u8, _gapo: c_int, _gape: c_int, xtra: c_int) Kswr {
     const slen: usize = @intCast(q.slen);
+    if (slen == 0) return g_defr;
     var r = g_defr;
 
     const minsc: i32 = if ((xtra & KSW_XSUBO) != 0) xtra & 0xffff else 0x10000;
@@ -322,6 +323,7 @@ fn ksw_u8(q: *Kswq, tlen: c_int, target: [*]const u8, _gapo: c_int, _gape: c_int
 
 fn ksw_i16(q: *Kswq, tlen: c_int, target: [*]const u8, _gapo: c_int, _gape: c_int, xtra: c_int) Kswr {
     const slen: usize = @intCast(q.slen);
+    if (slen == 0) return g_defr;
     var r = g_defr;
 
     const minsc: i32 = if ((xtra & KSW_XSUBO) != 0) xtra & 0xffff else 0x10000;
@@ -692,6 +694,7 @@ pub export fn ksw_global(
     const MINUS_INF: i32 = -0x40000000;
 
     if (n_cigar_) |p| p.* = 0;
+    if (qlen_u == 0 or tlen_u == 0) return 0;
 
     const n_col: usize = if (@as(usize, @intCast(qlen)) < @as(usize, @intCast(2 * w + 1)))
         qlen_u

@@ -321,12 +321,6 @@ pub const Glomerator = struct {
             return error.LogprobRatioThresholdNotSet;
         }
 
-        var initial = try self.initial_partition.clone(self.allocator);
-        defer {
-            for (initial.items) |s| self.allocator.free(s);
-            initial.deinit(self.allocator);
-        }
-
         // Clone partition entries
         var init_part: Partition = .{};
         for (self.initial_partition.items) |name| {
@@ -340,6 +334,7 @@ pub const Glomerator = struct {
         }
 
         try self.writePartitions(&cp);
+        try self.writeCacheFile();
         if (self.args.annotationfile.len > 0) {
             // WriteAnnotations is deprecated in C++; skip
         }
@@ -361,6 +356,7 @@ pub const Glomerator = struct {
         while (it.next()) |entry| {
             _ = try self.getNaiveSeq(entry.key_ptr.*, null);
         }
+        try self.writeCacheFile();
         // Signal completion by opening and closing the outfile
         const f = try std.fs.cwd().createFile(self.args.outfile, .{});
         f.close();
@@ -441,7 +437,9 @@ pub const Glomerator = struct {
 
         const f = try std.fs.cwd().createFile(self.args.output_cachefname, .{});
         defer f.close();
-        const writer = f.writer();
+        var wr_buf: [65536]u8 = undefined;
+        var wr = f.writer(&wr_buf);
+        const writer = &wr.interface;
 
         try writer.writeAll("unique_ids,logprob,naive_seq,naive_hfrac,errors\n");
 
@@ -493,6 +491,7 @@ pub const Glomerator = struct {
             if (self.errors.get(key)) |err| try writer.writeAll(err);
             try writer.writeByte('\n');
         }
+        try wr.interface.flush();
     }
 
     // ── Partition I/O ─────────────────────────────────────────────────────────
@@ -719,13 +718,15 @@ pub const Glomerator = struct {
         if (!self.naive_seqs.contains(queries_to_calc)) {
             const tmp_ns = try self.calculateNaiveSeq(queries_to_calc, null);
             if (tmp_ns.len == 0) {
+                self.allocator.free(tmp_ns);
                 std.debug.print("  warning: zero length naive sequence for {s}\n", .{queries_to_calc});
                 return "";
             }
             const key = try self.allocator.dupe(u8, queries_to_calc);
             errdefer self.allocator.free(key);
-            const val = try self.allocator.dupe(u8, tmp_ns);
-            try self.naive_seqs.put(self.allocator, key, val);
+            // tmp_ns is already an owned allocation from calculateNaiveSeq; store directly
+            errdefer self.allocator.free(tmp_ns);
+            try self.naive_seqs.put(self.allocator, key, tmp_ns);
         }
 
         if (!std.mem.eql(u8, queries_to_calc, queries)) {
@@ -738,7 +739,7 @@ pub const Glomerator = struct {
         return self.naive_seqs.get(queries).?;
     }
 
-    fn calculateNaiveSeq(self: *Glomerator, queries: []const u8, event_out: ?*RecoEvent) ![]const u8 {
+    fn calculateNaiveSeq(self: *Glomerator, queries: []const u8, event_out: ?*RecoEvent) ![]u8 {
         std.debug.assert(!self.naive_seqs.contains(queries));
         self.n_vtb_calculated += 1;
 
@@ -754,14 +755,15 @@ pub const Glomerator = struct {
 
         if (result.no_path) {
             try self.addFailedQuery(queries, "no_path");
-            return "";
+            return self.allocator.dupe(u8, "");
         }
 
         if (event_out != null and result.best_event != null) {
             event_out.?.* = result.best_event.?;
         }
 
-        return result.best_event.?.naive_seq;
+        // Must dupe before defer result.deinit() frees the memory
+        return self.allocator.dupe(u8, result.best_event.?.naive_seq);
     }
 
     // ── Hamming fraction ──────────────────────────────────────────────────────
