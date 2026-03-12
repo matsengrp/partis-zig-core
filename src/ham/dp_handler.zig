@@ -406,7 +406,7 @@ pub const DPHandler = struct {
 
         // Build the TrellisEntry query strings (needed if storing a new scratch).
         var qstrs: std.ArrayListUnmanaged([]u8) = .{};
-        errdefer {
+        defer {
             for (qstrs.items) |s| allocator.free(s);
             qstrs.deinit(allocator);
         }
@@ -427,6 +427,8 @@ pub const DPHandler = struct {
             qstrs = .{}; // ownership transferred to entry
             if (self.scratch_cachefo.getPtr(gene)) |cache_list| {
                 try cache_list.append(allocator, entry);
+                // Reallocation may have moved all entries — fix up self-referential _ptr fields.
+                for (cache_list.items) |*te| te.trellis.fixupPtrs();
                 break :blk &cache_list.items[cache_list.items.len - 1].trellis;
             } else {
                 // gene not in scratch_cachefo (shouldn't happen after initCache), discard

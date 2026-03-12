@@ -104,6 +104,15 @@ pub const Trellis = struct {
         return t;
     }
 
+    /// Fix up self-referential _ptr fields after the trellis has been copied/moved.
+    /// Must be called after any operation that may have moved this Trellis in memory.
+    pub fn fixupPtrs(self: *Trellis) void {
+        if (self.viterbi_log_probs_ptr != null) self.viterbi_log_probs_ptr = &self.viterbi_log_probs;
+        if (self.viterbi_indices_ptr != null) self.viterbi_indices_ptr = &self.viterbi_indices;
+        if (self.forward_log_probs_ptr != null) self.forward_log_probs_ptr = &self.forward_log_probs;
+        if (self.traceback_table_ptr != null) self.traceback_table_ptr = &self.traceback_table;
+    }
+
     pub fn deinit(self: *Trellis) void {
         const allocator = self.allocator;
         self.seqs.deinit(allocator);
@@ -398,19 +407,28 @@ pub const Trellis = struct {
 
     /// Ending Viterbi log-prob for a specific sequence length (used by cached trellis).
     pub fn endingViterbiLogProbAt(self: *const Trellis, length: usize) f64 {
-        if (self.viterbi_log_probs_ptr) |ptr| return ptr.items[length - 1];
+        if (length == 0) return -std.math.inf(f64);
+        if (self.viterbi_log_probs_ptr) |ptr| {
+            if (length - 1 < ptr.items.len) return ptr.items[length - 1];
+        }
         return -std.math.inf(f64);
     }
 
     /// Ending Forward log-prob for a specific sequence length.
     pub fn endingForwardLogProbAt(self: *const Trellis, length: usize) f64 {
-        if (self.forward_log_probs_ptr) |ptr| return ptr.items[length - 1];
+        if (length == 0) return -std.math.inf(f64);
+        if (self.forward_log_probs_ptr) |ptr| {
+            if (length - 1 < ptr.items.len) return ptr.items[length - 1];
+        }
         return -std.math.inf(f64);
     }
 
     /// Best state index at a specific sequence length (Viterbi).
     pub fn viterbiIndicesAt(self: *const Trellis, length: usize) i32 {
-        if (self.viterbi_indices_ptr) |ptr| return ptr.items[length - 1];
+        if (length == 0) return -1;
+        if (self.viterbi_indices_ptr) |ptr| {
+            if (length - 1 < ptr.items.len) return ptr.items[length - 1];
+        }
         return -1;
     }
 };
