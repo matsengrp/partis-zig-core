@@ -412,26 +412,32 @@ pub const Glomerator = struct {
 
             if (logprob_str.len > 0) {
                 const val = std.fmt.parseFloat(f64, logprob_str) catch continue;
-                const lp_key = try allocator.dupe(u8, query);
-                try self.log_probs.put(allocator, lp_key, val);
-                const ilp_key = try allocator.dupe(u8, query);
-                try self.initial_log_probs.put(allocator, ilp_key, {});
+                const gop_lp = try self.log_probs.getOrPut(allocator, query);
+                if (!gop_lp.found_existing) gop_lp.key_ptr.* = try allocator.dupe(u8, query);
+                gop_lp.value_ptr.* = val;
+                const gop_ilp = try self.initial_log_probs.getOrPut(allocator, query);
+                if (!gop_ilp.found_existing) gop_ilp.key_ptr.* = try allocator.dupe(u8, query);
             }
 
             if (naive_hfrac_str.len > 0) {
                 const val = std.fmt.parseFloat(f64, naive_hfrac_str) catch continue;
-                const nh_key = try allocator.dupe(u8, query);
-                try self.naive_hfracs.put(allocator, nh_key, val);
-                const inh_key = try allocator.dupe(u8, query);
-                try self.initial_naive_hfracs.put(allocator, inh_key, {});
+                const gop_nh = try self.naive_hfracs.getOrPut(allocator, query);
+                if (!gop_nh.found_existing) gop_nh.key_ptr.* = try allocator.dupe(u8, query);
+                gop_nh.value_ptr.* = val;
+                const gop_inh = try self.initial_naive_hfracs.getOrPut(allocator, query);
+                if (!gop_inh.found_existing) gop_inh.key_ptr.* = try allocator.dupe(u8, query);
             }
 
             if (naive_seq.len > 0) {
-                const ns_key = try allocator.dupe(u8, query);
-                const ns_val = try allocator.dupe(u8, naive_seq);
-                try self.naive_seqs.put(allocator, ns_key, ns_val);
-                const ins_key = try allocator.dupe(u8, query);
-                try self.initial_naive_seqs.put(allocator, ins_key, {});
+                const gop_ns = try self.naive_seqs.getOrPut(allocator, query);
+                if (gop_ns.found_existing) {
+                    allocator.free(gop_ns.value_ptr.*);
+                } else {
+                    gop_ns.key_ptr.* = try allocator.dupe(u8, query);
+                }
+                gop_ns.value_ptr.* = try allocator.dupe(u8, naive_seq);
+                const gop_ins = try self.initial_naive_seqs.getOrPut(allocator, query);
+                if (!gop_ins.found_existing) gop_ins.key_ptr.* = try allocator.dupe(u8, query);
             }
         }
 
@@ -684,7 +690,8 @@ pub const Glomerator = struct {
 
         if (self.lratios.get(joint_name)) |lr| return lr;
 
-        const full_qmerged = try self.getMergedQuery(key_a, key_b);
+        var full_qmerged = try self.getMergedQuery(key_a, key_b);
+        defer full_qmerged.deinit(self.allocator);
         const parents_to_calc = try self.getLogProbPairOfNamesToCalculate(joint_name, if (full_qmerged.parents != null) &full_qmerged.parents.? else null);
         defer {
             self.allocator.free(parents_to_calc[0]);
@@ -694,7 +701,8 @@ pub const Glomerator = struct {
         const lp_a = try self.getLogProb(parents_to_calc[0]);
         const lp_b = try self.getLogProb(parents_to_calc[1]);
 
-        const qmerged_calc = try self.getMergedQuery(parents_to_calc[0], parents_to_calc[1]);
+        var qmerged_calc = try self.getMergedQuery(parents_to_calc[0], parents_to_calc[1]);
+        defer qmerged_calc.deinit(self.allocator);
         const lp_ab = try self.getLogProb(qmerged_calc.name);
 
         const lratio = lp_ab - lp_a - lp_b;
