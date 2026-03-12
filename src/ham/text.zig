@@ -24,7 +24,6 @@ pub fn clear_whitespace(allocator: std.mem.Allocator, chars: []const u8, input: 
             i += 1;
         }
     }
-    std.debug.print("{{\"checkpoint\": \"ham.Text.ClearWhitespace.exit\", \"result\": \"{s}\"}}\n", .{input.items});
 }
 
 /// Splits `argstr` by whitespace (any run), returning a list of owned slices.
@@ -37,7 +36,6 @@ pub fn python_split(allocator: std.mem.Allocator, argstr: []const u8) !std.Array
         const owned = try allocator.dupe(u8, tok);
         try tokens.append(allocator, owned);
     }
-    std.debug.print("{{\"checkpoint\": \"ham.Text.PythonSplit.exit\", \"n_tokens\": {}}}\n", .{tokens.items.len});
     return tokens;
 }
 
@@ -59,7 +57,6 @@ pub fn split_string(allocator: std.mem.Allocator, argstr: []const u8, delimiter:
             break;
         }
     }
-    std.debug.print("{{\"checkpoint\": \"ham.Text.SplitString.exit\", \"n_parts\": {}}}\n", .{parts.items.len});
     return parts;
 }
 
@@ -71,19 +68,16 @@ pub fn in_string(query: []const u8, liststr: []const u8, delimiter: []const u8) 
     while (true) {
         if (std.mem.indexOf(u8, remaining, delimiter)) |pos| {
             if (std.mem.eql(u8, remaining[0..pos], query)) {
-                std.debug.print("{{\"checkpoint\": \"ham.Text.InString.exit\", \"found\": true}}\n", .{});
                 return true;
             }
             remaining = remaining[pos + delimiter.len ..];
         } else {
             if (std.mem.eql(u8, remaining, query)) {
-                std.debug.print("{{\"checkpoint\": \"ham.Text.InString.exit\", \"found\": true}}\n", .{});
                 return true;
             }
             break;
         }
     }
-    std.debug.print("{{\"checkpoint\": \"ham.Text.InString.exit\", \"found\": false}}\n", .{});
     return false;
 }
 
@@ -92,9 +86,7 @@ pub fn in_string(query: []const u8, liststr: []const u8, delimiter: []const u8) 
 /// Corresponds to C++ `ham::JoinStrings(vector<string> &strlist, string delimiter)`.
 pub fn join_strings(allocator: std.mem.Allocator, strlist: []const []const u8, delimiter: []const u8) ![]u8 {
     if (strlist.len == 0) {
-        const result = try allocator.dupe(u8, "");
-        std.debug.print("{{\"checkpoint\": \"ham.Text.JoinStrings.exit\", \"result\": \"\"}}\n", .{});
-        return result;
+        return try allocator.dupe(u8, "");
     }
     var total_len: usize = 0;
     for (strlist, 0..) |s, i| {
@@ -111,7 +103,6 @@ pub fn join_strings(allocator: std.mem.Allocator, strlist: []const []const u8, d
             pos += delimiter.len;
         }
     }
-    std.debug.print("{{\"checkpoint\": \"ham.Text.JoinStrings.exit\", \"result\": \"{s}\"}}\n", .{buf});
     return buf;
 }
 
@@ -122,7 +113,6 @@ pub fn intify(allocator: std.mem.Allocator, strlist: []const []const u8) ![]i32 
     for (strlist, 0..) |s, i| {
         result[i] = try std.fmt.parseInt(i32, s, 10);
     }
-    std.debug.print("{{\"checkpoint\": \"ham.Text.Intify.exit\", \"n\": {}}}\n", .{result.len});
     return result;
 }
 
@@ -136,7 +126,6 @@ pub fn floatify(allocator: std.mem.Allocator, strlist: []const []const u8) ![]f6
         const f32_val = try std.fmt.parseFloat(f32, s);
         result[i] = @as(f64, f32_val);
     }
-    std.debug.print("{{\"checkpoint\": \"ham.Text.Floatify.exit\", \"n\": {}}}\n", .{result.len});
     return result;
 }
 

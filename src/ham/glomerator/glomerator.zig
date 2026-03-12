@@ -176,6 +176,7 @@ pub const Glomerator = struct {
                 if (!self.single_seq_cachefo.contains(uid)) {
                     const uid_seqs = try self.getSeqs(uid);
                     defer {
+                        for (uid_seqs.items) |*sq| sq.deinit(allocator);
                         var s = uid_seqs;
                         s.deinit(allocator);
                     }
@@ -201,8 +202,9 @@ pub const Glomerator = struct {
             // Build cachefo entry for the full query group
             const key_seqs = try self.getSeqs(key);
             defer {
-                var ks = key_seqs;
-                ks.deinit(allocator);
+                for (key_seqs.items) |*ks| ks.deinit(allocator);
+                var ksl = key_seqs;
+                ksl.deinit(allocator);
             }
             const is_seed_missing = !ham_text.in_string(args.seed_unique_id, key, ":");
             var q = try Query.create(
@@ -360,6 +362,14 @@ pub const Glomerator = struct {
         // Signal completion by opening and closing the outfile
         const f = try std.fs.cwd().createFile(self.args.outfile, .{});
         f.close();
+        {
+            var buf: [256]u8 = undefined;
+            const s = try std.fmt.bufPrint(&buf,
+                "        calcd:   vtb {: <4}  fwd {: <4}  hfrac {: <8}\n        merged:  hfrac {: <4} lratio {: <4}\n",
+                .{ @as(u32, @intCast(self.n_vtb_calculated)), @as(u32, @intCast(self.n_fwd_calculated)), @as(u32, 0), @as(u32, 0), @as(u32, 0) },
+            );
+            try std.fs.File.stdout().writeAll(s);
+        }
     }
 
     // ── Cache file I/O ────────────────────────────────────────────────────────
@@ -713,7 +723,7 @@ pub const Glomerator = struct {
         }
 
         const queries_to_calc = try self.getNaiveSeqNameToCalculate(queries);
-        defer if (!std.mem.eql(u8, queries_to_calc, queries)) self.allocator.free(queries_to_calc);
+        defer self.allocator.free(queries_to_calc);
 
         if (!self.naive_seqs.contains(queries_to_calc)) {
             const tmp_ns = try self.calculateNaiveSeq(queries_to_calc, null);
@@ -836,7 +846,9 @@ pub const Glomerator = struct {
                 if (hf < min_hf) {
                     min_hf = hf;
                     if (best_query) |*bq| bq.deinit(self.allocator);
-                    best_query = try cloneQuery(self.allocator, &try self.getMergedQuery(key_a, key_b));
+                    var merged = try self.getMergedQuery(key_a, key_b);
+                    defer merged.deinit(self.allocator);
+                    best_query = try cloneQuery(self.allocator, &merged);
                     found = true;
                 }
             }
@@ -878,7 +890,9 @@ pub const Glomerator = struct {
                 if (lratio > max_lratio) {
                     max_lratio = lratio;
                     if (best_query) |*bq| bq.deinit(self.allocator);
-                    best_query = try cloneQuery(self.allocator, &try self.getMergedQuery(key_a, key_b));
+                    var merged = try self.getMergedQuery(key_a, key_b);
+                    defer merged.deinit(self.allocator);
+                    best_query = try cloneQuery(self.allocator, &merged);
                 }
             }
         }
@@ -1017,8 +1031,9 @@ pub const Glomerator = struct {
 
         const key_seqs = try self.getSeqs(joint_name);
         defer {
-            var ks = key_seqs;
-            ks.deinit(self.allocator);
+            for (key_seqs.items) |*ks| ks.deinit(self.allocator);
+            var ksl = key_seqs;
+            ksl.deinit(self.allocator);
         }
 
         var q = try Query.create(
